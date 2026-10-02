@@ -3,6 +3,8 @@ import { ArchiveRestore, Download, FileText, ShieldCheck, Trash2, Upload } from 
 import { useEffect, useState } from 'react'
 import { db, emptyTrash, exportJson, importJson, importText, restoreNote, trashedNotes } from '../lib/db'
 import { fmt, toKey } from '../lib/dates'
+import { AssistantSettings } from './AssistantSettings'
+import { SpaceSettings } from './SpaceSettings'
 import { useToast } from './Toast'
 
 export function SettingsView() {
@@ -89,6 +91,10 @@ export function SettingsView() {
         Drive).
       </p>
 
+      <SpaceSettings />
+
+      <AssistantSettings />
+
       <h2 className="section__title">Importer depuis Notes</h2>
       <div className="group">
         {!pasteOpen ? (
@@ -150,6 +156,8 @@ export function SettingsView() {
 
       <h2 className="section__title">Astuces</h2>
       <ul className="tips">
+        <li>Avec un espace partagé, les notes #courses ou #famille sont visibles par vous deux, et chacun peut cocher les éléments.</li>
+        <li>Touchez ✨ ou « Que faut-il retenir ? » et dictez une phrase : l’IA crée les notes, avec date et répétition.</li>
         <li>Touchez l’icône liste dans une note pour créer des cases à cocher, cochables directement depuis la liste.</li>
         <li>Une liste de courses qui revient chaque semaine : donnez-lui une répétition, puis « Tout décocher » après les courses.</li>
         <li>Pour un rappel sur l’iPhone, choisissez un rappel puis « Ajouter au Calendrier ».</li>

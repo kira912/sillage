@@ -1,0 +1,68 @@
+import { checkAccess, error, json, readJson } from './_lib/http.js'
+import { isSubscription, pushConfigured, sendPush } from './_lib/push.js'
+import { deviceId, getStore, type Reminder } from './_lib/store.js'
+
+const MAX_REMINDERS = 500
+const HORIZON_MS = 60 * 24 * 3600 * 1000
+
+interface SyncRequest {
+  subscription?: unknown
+  reminders?: unknown
+  test?: unknown
+}
+
+function cleanReminders(raw: unknown, now: number): Reminder[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter(
+      (r): r is Reminder =>
+        !!r &&
+        typeof r.id === 'string' &&
+        typeof r.title === 'string' &&
+        typeof r.body === 'string' &&
+        Number.isFinite(r.at) &&
+        r.at > now - 60_000 &&
+        r.at < now + HORIZON_MS,
+    )
+    .slice(0, MAX_REMINDERS)
+    .map((r) => ({ id: r.id.slice(0, 100), at: Math.round(r.at), title: r.title.slice(0, 120), body: r.body.slice(0, 300) }))
+}
+
+/**
+ * Le téléphone envoie la liste complète de ses rappels à venir ; elle remplace la précédente.
+ * Les notes elles-mêmes restent sur le téléphone : seuls titre, heure et courte description transitent.
+ */
+export async function PUT(request: Request) {
+  const denied = checkAccess(request)
+  if (denied) return denied
+  if (!pushConfigured()) return error(503, 'Notifications non configurées sur le serveur (clés VAPID)')
+
+  const input = await readJson<SyncRequest>(request, 256_000)
+  if (!isSubscription(input?.subscription)) return error(400, 'Abonnement push invalide')
+
+  const now = Date.now()
+  const reminders = cleanReminders(input.reminders, now)
+  const device = deviceId(input.subscription.endpoint)
+  await getStore().replaceDevice(device, input.subscription, reminders)
+
+  if (input.test === true) {
+    const result = await sendPush(input.subscription, {
+      title: 'Sillage',
+      body: 'Les notifications fonctionnent 🎉',
+      tag: 'sillage-test',
+    })
+    if (result === 'gone') return error(410, 'Abonnement expiré, réactivez les notifications')
+  }
+
+  return json({ scheduled: reminders.length })
+}
+
+/** Désactivation des notifications sur un appareil. */
+export async function DELETE(request: Request) {
+  const denied = checkAccess(request)
+  if (denied) return denied
+  const input = await readJson<SyncRequest>(request)
+  if (!isSubscription(input?.subscription)) return error(400, 'Abonnement push invalide')
+  await getStore().removeDevice(deviceId(input.subscription.endpoint))
+  return json({ ok: true })
+}

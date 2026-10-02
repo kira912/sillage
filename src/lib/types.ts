@@ -32,6 +32,19 @@ export interface Note {
   doneDates: string[]
   /** Présent si la note est dans la corbeille. */
   deletedAt?: number
+  /** Note de l'espace partagé, synchronisée avec les autres membres. */
+  shared?: boolean
+  /** Prénom de la dernière personne ayant modifié la note partagée. */
+  editedBy?: string
   createdAt: number
   updatedAt: number
+}
+
+/** Suivi local de la synchronisation d'une note partagée. */
+export interface SyncMeta {
+  id: string
+  /** Version serveur sur laquelle la copie locale est basée. */
+  rev: number
+  /** Empreinte du contenu lors de la dernière synchronisation (différente = modification à envoyer). */
+  fp: string
 }

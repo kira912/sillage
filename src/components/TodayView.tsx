@@ -1,5 +1,6 @@
 import { addDays } from 'date-fns'
 import { useLiveQuery } from 'dexie-react-hooks'
+import { Mic, Sparkles } from 'lucide-react'
 import { useMemo } from 'react'
 import { activeNotes } from '../lib/db'
 import { agendaRange, byTime, fmt, occursOn, relativeDay, toKey } from '../lib/dates'
@@ -8,7 +9,13 @@ import { Section } from './Section'
 
 const UPCOMING_DAYS = 7
 
-export function TodayView({ onOpen, onCreate }: { onOpen: (id: string) => void; onCreate: () => void }) {
+interface Props {
+  onOpen: (id: string) => void
+  onCreate: () => void
+  onCapture: () => void
+}
+
+export function TodayView({ onOpen, onCreate, onCapture }: Props) {
   const notes = useLiveQuery(activeNotes, [])
   const today = useMemo(() => new Date(), [])
   const todayKey = toKey(today)
@@ -32,6 +39,12 @@ export function TodayView({ onOpen, onCreate }: { onOpen: (id: string) => void; 
 
   return (
     <section className="view">
+      <button className="capture-bar" onClick={onCapture}>
+        <Sparkles size={18} />
+        <span>Que faut-il retenir ?</span>
+        <Mic size={18} className="capture-bar__mic" />
+      </button>
+
       <div className="hello">
         <p className="hello__date">{fmt(today, 'EEEE d MMMM')}</p>
         <p className="muted">

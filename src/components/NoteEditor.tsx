@@ -18,6 +18,7 @@ import {
   Repeat,
   Tag,
   Trash2,
+  Users,
   X,
 } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
@@ -25,6 +26,7 @@ import { checklistProgress, removeChecked, uncheckAll } from '../lib/checklist'
 import { activeNotes, db, duplicateNote, isEmptyNote, newNote, restoreNote, trashNote } from '../lib/db'
 import { WEEKDAYS_SHORT, WEEK_ORDER, describeReminder, fmt, fromKey, relativeDay, toKey } from '../lib/dates'
 import { addToCalendar } from '../lib/ics'
+import { shouldAutoShare, useSpace } from '../lib/space'
 import { NOTE_COLORS, type Freq, type Note } from '../lib/types'
 import { useToast } from './Toast'
 
@@ -61,13 +63,16 @@ export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
   const bodyRef = useRef<HTMLTextAreaElement>(null)
   const latest = useRef<Note | null>(null)
   const deleted = useRef(false)
+  /** Vrai dès que l'utilisateur modifie la note : seulement alors on enregistre. */
+  const dirty = useRef(false)
   const toast = useToast()
   const notes = useLiveQuery(activeNotes, [])
+  const space = useSpace()
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      const n = (id && (await db.notes.get(id))) || newNote(defaults)
+      const n = (id && (await db.notes.get(id))) || newNote({ ...defaults, shared: shouldAutoShare(defaults?.tags ?? []) || undefined })
       if (!cancelled) setDraft(n)
     })()
     return () => {
@@ -80,11 +85,19 @@ export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
   useEffect(() => {
     if (!draft) return
     latest.current = draft
+    if (!dirty.current) return
     const t = setTimeout(() => persist(draft), 400)
     return () => clearTimeout(t)
   }, [draft])
 
-  useEffect(() => () => void (latest.current && persist(latest.current)), [])
+  useEffect(() => () => void (dirty.current && latest.current && persist(latest.current)), [])
+
+  // Note partagée modifiée par l'autre personne pendant qu'elle est ouverte ici (sans modification locale) :
+  // on affiche la nouvelle version.
+  const stored = useLiveQuery(() => (id ? db.notes.get(id) : undefined), [id])
+  useEffect(() => {
+    if (stored && !dirty.current && !deleted.current) setDraft(stored)
+  }, [stored])
 
   // La zone de texte grandit avec son contenu.
   useLayoutEffect(() => {
@@ -102,7 +115,10 @@ export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
 
   if (!draft) return null
 
-  const set = (patch: Partial<Note>) => setDraft((d) => (d ? { ...d, ...patch, updatedAt: Date.now() } : d))
+  const set = (patch: Partial<Note>) => {
+    dirty.current = true
+    setDraft((d) => (d ? { ...d, ...patch, updatedAt: Date.now() } : d))
+  }
   const rec = draft.recurrence
   const progress = checklistProgress(draft.body)
   const weekdays = rec?.byWeekday?.length ? rec.byWeekday : draft.date ? [fromKey(draft.date).getDay()] : []
@@ -132,7 +148,10 @@ export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
   function addTag(raw: string) {
     const t = normalizeTag(raw)
     setTagInput('')
-    if (t && !draft!.tags.includes(t)) set({ tags: [...draft!.tags, t] })
+    if (!t || draft!.tags.includes(t)) return
+    const tags = [...draft!.tags, t]
+    // Ajouter une étiquette partagée (#courses…) partage la note ; on peut toujours la repasser en personnelle.
+    set({ tags, ...(!draft!.shared && shouldAutoShare([t]) ? { shared: true } : {}) })
   }
 
   function onTagKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -378,6 +397,28 @@ export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
             </>
           )}
         </div>
+
+        {space && (
+          <div className="group">
+            <div className="row">
+              <span className="row__icon"><Users size={18} /></span>
+              <span className="row__label row__label--grow row__label--stack">
+                {draft.shared ? space.name : 'Personnelle'}
+                <small className="muted">
+                  {draft.shared ? (draft.editedBy ? `Modifiée par ${draft.editedBy}` : 'Visible par tout l’espace') : 'Visible par vous seul·e'}
+                </small>
+              </span>
+              <div className="segmented" role="radiogroup" aria-label="Partage">
+                <button role="radio" aria-checked={!draft.shared} className={!draft.shared ? 'on' : ''} onClick={() => set({ shared: undefined })}>
+                  Perso
+                </button>
+                <button role="radio" aria-checked={!!draft.shared} className={draft.shared ? 'on' : ''} onClick={() => set({ shared: true })}>
+                  Partagée
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="group">
           <Row icon={<MapPin size={18} />} label="Lieu" onClear={draft.location ? () => set({ location: undefined }) : undefined}>

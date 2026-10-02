@@ -1,13 +1,18 @@
 import Dexie, { type Table } from 'dexie'
-import type { Note } from './types'
+import type { Note, SyncMeta } from './types'
 
 class SillageDB extends Dexie {
   notes!: Table<Note, string>
+  sync!: Table<SyncMeta, string>
 
   constructor() {
     super('sillage')
     this.version(1).stores({
       notes: 'id, updatedAt, date, *tags',
+    })
+    this.version(2).stores({
+      notes: 'id, updatedAt, date, *tags',
+      sync: 'id',
     })
   }
 }

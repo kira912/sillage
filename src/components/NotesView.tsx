@@ -1,7 +1,8 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Search, X } from 'lucide-react'
+import { Search, Users, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { activeNotes } from '../lib/db'
+import { useSpace } from '../lib/space'
 import { NoteCard } from './NoteCard'
 import { Section } from './Section'
 
@@ -9,6 +10,8 @@ export function NotesView({ onOpen }: { onOpen: (id: string) => void }) {
   const notes = useLiveQuery(activeNotes, [])
   const [query, setQuery] = useState('')
   const [tag, setTag] = useState<string | null>(null)
+  const [sharedOnly, setSharedOnly] = useState(false)
+  const space = useSpace()
 
   const allTags = useMemo(() => {
     const count = new Map<string, number>()
@@ -21,8 +24,9 @@ export function NotesView({ onOpen }: { onOpen: (id: string) => void }) {
     const q = normalize(query.trim())
     return (notes ?? [])
       .filter((n) => !tag || n.tags.includes(tag))
+      .filter((n) => !sharedOnly || (space && n.shared))
       .filter((n) => !q || normalize(`${n.title}\n${n.body}\n${n.tags.join(' ')}\n${n.location ?? ''}`).includes(q))
-  }, [notes, query, tag])
+  }, [notes, query, tag, sharedOnly, space])
 
   if (!notes) return null
 
@@ -41,11 +45,16 @@ export function NotesView({ onOpen }: { onOpen: (id: string) => void }) {
         )}
       </div>
 
-      {allTags.length > 0 && (
+      {(allTags.length > 0 || space) && (
         <div className="chips chips--scroll">
-          <button className={`chip${tag === null ? ' chip--on' : ''}`} onClick={() => setTag(null)}>
+          <button className={`chip${tag === null && !sharedOnly ? ' chip--on' : ''}`} onClick={() => (setTag(null), setSharedOnly(false))}>
             Toutes
           </button>
+          {space && (
+            <button className={`chip${sharedOnly ? ' chip--on' : ''}`} onClick={() => setSharedOnly(!sharedOnly)}>
+              <Users size={14} /> Partagées
+            </button>
+          )}
           {allTags.map((t) => (
             <button key={t} className={`chip${tag === t ? ' chip--on' : ''}`} onClick={() => setTag(tag === t ? null : t)}>
               #{t}

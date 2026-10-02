@@ -1,4 +1,4 @@
-import { CalendarDays, ListChecks, MapPin, Pin, Repeat } from 'lucide-react'
+import { CalendarDays, ListChecks, MapPin, Pin, Repeat, Users } from 'lucide-react'
 import { CHECK_RE, checklistProgress, toggleLine } from '../lib/checklist'
 import { db, restoreNote, toggleDone, trashNote } from '../lib/db'
 import { describeRecurrence, fmt, fromKey, nextOccurrence, relativeDay } from '../lib/dates'
@@ -27,7 +27,7 @@ export function NoteCard({ note, onOpen, dayKey, showDate }: Props) {
 
   async function remove() {
     await trashNote(note.id)
-    toast(note.recurrence ? 'Note et ses répétitions supprimées' : 'Note placée dans la corbeille', {
+    toast(note.shared ? 'Note supprimée pour tout l’espace' : note.recurrence ? 'Note et ses répétitions supprimées' : 'Note placée dans la corbeille', {
       label: 'Annuler',
       run: () => restoreNote(note.id),
     })
@@ -60,6 +60,7 @@ export function NoteCard({ note, onOpen, dayKey, showDate }: Props) {
             )}
             <h3 className="card__title">{note.title || <span className="muted">Sans titre</span>}</h3>
           </div>
+          {note.shared && <Users size={15} className="card__shared" aria-label="Partagée" />}
           {note.pinned && <Pin size={14} className="card__pin" aria-label="Épinglée" />}
         </div>
 

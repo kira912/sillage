@@ -15,10 +15,17 @@ PWA de prise de notes et d'agenda, pensée pour le téléphone, qui fonctionne h
 - Corbeille (30 jours) avec « Annuler » juste après la suppression, et duplication de note
 - Sauvegarde JSON (feuille de partage, donc Fichiers / iCloud Drive), restauration, import par copier-coller depuis l'app Notes
 - PWA installable, hors ligne, mode sombre, zones sûres de l'iPhone, bouton retour fermant l'éditeur
+- **Saisie rapide par IA** : une phrase tapée ou dictée (« pédiatre jeudi 14h30, rappelle-moi ») devient une ou
+  plusieurs notes datées, récurrentes ou en liste, avec un aperçu avant ajout (Claude, via une fonction serveur)
+- **Notifications push** de rappel (iPhone : app installée sur l'écran d'accueil, iOS 16.4+)
+- **Espace partagé** : on rejoint une fois un espace commun (code d'invitation) ; chaque note est personnelle ou
+  partagée, et des étiquettes (#courses, #famille…) partagent automatiquement. Synchronisation automatique,
+  **chiffrée de bout en bout** (le serveur ne peut pas lire les notes partagées)
 
 ## Stack
 
 Vite + React + TypeScript, Dexie (IndexedDB) pour le stockage local, vite-plugin-pwa (Workbox), date-fns, lucide-react.
+Côté serveur (fonctions Vercel dans `api/`) : SDK Anthropic, web-push, Upstash Redis.
 
 Les données restent **sur l'appareil**. Pensez à exporter régulièrement tant qu'il n'y a pas de synchro.
 
@@ -31,6 +38,9 @@ pnpm install
 pnpm dev        # http://localhost:5173 et http://<ip-du-pc>:5173 depuis le téléphone (même Wi-Fi)
 pnpm build && pnpm preview   # tester le service worker / le hors ligne
 ```
+
+Les fonctions de `api/` tournent aussi en local (dev et preview), avec les variables de `.env.local`
+(voir `.env.example`). Sans Redis configuré, les rappels sont stockés en mémoire.
 
 En `http://` sur le téléphone, l'installation sur l'écran d'accueil et le hors ligne sont désactivés.
 Pour les tester sans déployer : `npx cloudflared tunnel --url http://localhost:5173`.
@@ -56,3 +66,44 @@ Les mises à jour s'installent toutes seules à la réouverture de l'app.
 
 > Les données vivent dans le navigateur, liées au **domaine**. Si l'URL change (autre projet Vercel,
 > domaine perso ajouté plus tard), exporter une sauvegarde depuis l'ancienne URL et la restaurer sur la nouvelle.
+
+### Saisie IA et notifications : configuration
+
+Variables d'environnement à définir dans Vercel → *Settings → Environment Variables* (détail dans `.env.example`) :
+
+| Variable | Rôle |
+| --- | --- |
+| `SILLAGE_ACCESS_CODE` | Code partagé, saisi une fois dans Réglages sur chaque téléphone. Protège l'IA et les rappels. |
+| `ANTHROPIC_API_KEY` | Clé API pour la saisie rapide. `SILLAGE_MODEL` (optionnel) change de modèle. |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Clés des notifications : `pnpm dlx web-push generate-vapid-keys`. Ne plus les changer ensuite (sinon réabonnement). |
+| `CRON_SECRET` | Secret du déclencheur d'envoi des rappels. |
+| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Redis : posées automatiquement en ajoutant l'intégration **Upstash Redis** (Vercel → *Storage*). |
+
+**Envoi des rappels chaque minute** : `GET /api/cron` avec l'en-tête `Authorization: Bearer <CRON_SECRET>`.
+Le plan Hobby de Vercel limite ses crons à un par jour, donc :
+- plan Hobby : créer une tâche gratuite sur [cron-job.org](https://cron-job.org) (toutes les minutes, URL
+  `https://<votre-app>/api/cron`, en-tête `Authorization` ci-dessus) ;
+- plan Pro : ajouter `"crons": [{ "path": "/api/cron", "schedule": "* * * * *" }]` dans `vercel.json`
+  (Vercel envoie alors lui-même `CRON_SECRET`).
+
+Sur l'iPhone : installer l'app sur l'écran d'accueil, puis Réglages → code d'accès → Notifications → Activer.
+Une notification de test confirme que tout fonctionne. Les rappels sont planifiés sur 30 jours glissants et
+recalculés à chaque ouverture de l'app.
+
+**Données transmises** : le texte saisi dans la saisie rapide (pour analyse), et pour les notes avec rappel :
+titre, date/heure et lieu. Les notes partagées transitent chiffrées (AES-GCM, clé dérivée du code d'invitation,
+jamais envoyée au serveur). Les notes personnelles ne quittent pas le téléphone.
+
+### Espace partagé
+
+Réglages → Partage → *Créer un espace partagé*, puis *Inviter quelqu'un* : le code envoyé (par Messages…)
+contient aussi le code d'accès, l'autre personne n'a qu'à le coller dans Réglages → Partage → *Rejoindre*.
+Sur iPhone, un lien n'ouvre pas l'app installée : c'est pour ça que l'invitation passe par un code à coller.
+
+- Synchronisation : après chaque modification, toutes les 20 s quand l'app est ouverte, au retour dans l'app.
+- Conflit (même note modifiée des deux côtés avant synchronisation) : la version arrivée en premier sur le serveur
+  l'emporte ; l'autre téléphone la reçoit.
+- Repasser une note en « Perso » la retire de chez les autres (elle part dans leur corbeille).
+- Le chiffrement utilise WebCrypto : il faut HTTPS (ou `localhost`) ; en `http://<ip>` le partage est indisponible.
+- Redis est nécessaire en production (même intégration Upstash que pour les rappels).
+
