@@ -1,4 +1,4 @@
-import { checkAccess, error, json, readJson } from './_lib/http.js'
+import { checkAccess, error, guard, json, readJson } from './_lib/http.js'
 import { getSpaceStore, type SpaceEntry } from './_lib/space-store.js'
 
 const MAX_BLOB = 64_000
@@ -25,7 +25,7 @@ const isBlob = (v: unknown): v is string => typeof v === 'string' && v.length > 
  * - `sync` : envoie les notes modifiées (avec la version sur laquelle elles se basent) et reçoit les changements des autres ;
  * - `leave` : retire ce téléphone de la liste des membres.
  */
-export async function POST(request: Request) {
+export const POST = guard(async (request: Request) => {
   const denied = checkAccess(request)
   if (denied) return denied
 
@@ -87,4 +87,4 @@ export async function POST(request: Request) {
     default:
       return error(400, 'Action inconnue')
   }
-}
+})

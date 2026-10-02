@@ -1,4 +1,5 @@
-import { Redis } from '@upstash/redis'
+import type { Redis } from '@upstash/redis'
+import { getRedis } from './redis.js'
 
 /**
  * Stockage des espaces partagés. Le serveur ne voit que des blobs chiffrés côté téléphone
@@ -157,10 +158,7 @@ let store: SpaceStore | undefined
 
 export function getSpaceStore(): SpaceStore {
   if (store) return store
-  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL
-  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN
-  if (url && token) store = new RedisSpaceStore(new Redis({ url, token, automaticDeserialization: false }))
-  else if (process.env.VERCEL) throw new Error('Redis non configuré (KV_REST_API_URL / KV_REST_API_TOKEN)')
-  else store = new MemorySpaceStore()
+  const redis = getRedis()
+  store = redis ? new RedisSpaceStore(redis) : new MemorySpaceStore()
   return store
 }

@@ -8,6 +8,24 @@ export const json = (data: unknown, status = 200) =>
 
 export const error = (status: number, message: string) => json({ error: message }, status)
 
+/** Configuration serveur manquante ou invalide : renvoyée en 503 avec un message explicite. */
+export class ConfigError extends Error {}
+
+type Handler = (request: Request) => Promise<Response> | Response
+
+/** Transforme toute exception en réponse JSON lisible (au lieu d'un « Internal Server Error » opaque). */
+export function guard(handler: Handler): Handler {
+  return async (request) => {
+    try {
+      return await handler(request)
+    } catch (e) {
+      console.error('[sillage]', e)
+      if (e instanceof ConfigError) return error(503, e.message)
+      return error(500, `Erreur serveur : ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+}
+
 function safeEqual(a: string, b: string) {
   // Comparaison à temps constant sur des empreintes de même longueur.
   const ha = createHash('sha256').update(a).digest()

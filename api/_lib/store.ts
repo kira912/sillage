@@ -1,6 +1,7 @@
-import { Redis } from '@upstash/redis'
+import type { Redis } from '@upstash/redis'
 import { createHash } from 'node:crypto'
 import type { PushSubscription } from 'web-push'
+import { getRedis } from './redis.js'
 
 /** Un rappel planifié : `at` en millisecondes epoch (calculé sur le téléphone, dans son fuseau). */
 export interface Reminder {
@@ -107,15 +108,7 @@ let store: Store | undefined
 
 export function getStore(): Store {
   if (store) return store
-  // Variables posées par l'intégration Upstash de Vercel (anciennement « Vercel KV ») ou par Upstash directement.
-  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL
-  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN
-  if (url && token) {
-    store = new RedisStore(new Redis({ url, token, automaticDeserialization: false }))
-  } else {
-    if (process.env.VERCEL) throw new Error('Redis non configuré (KV_REST_API_URL / KV_REST_API_TOKEN)')
-    console.warn('[sillage] Redis non configuré : stockage en mémoire (dev uniquement)')
-    store = new MemoryStore()
-  }
+  const redis = getRedis()
+  store = redis ? new RedisStore(redis) : new MemoryStore()
   return store
 }

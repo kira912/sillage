@@ -1,4 +1,4 @@
-import { checkCron, json } from './_lib/http.js'
+import { checkCron, guard, json } from './_lib/http.js'
 import { sendPush } from './_lib/push.js'
 import { getStore } from './_lib/store.js'
 
@@ -9,7 +9,7 @@ const MAX_LATE_MS = 2 * 3600 * 1000
  * Envoie les rappels arrivés à échéance. À appeler chaque minute :
  * Vercel Cron (plan Pro) ou un service externe comme cron-job.org (plan Hobby).
  */
-export async function GET(request: Request) {
+export const GET = guard(async (request: Request) => {
   const denied = checkCron(request)
   if (denied) return denied
 
@@ -43,4 +43,4 @@ export async function GET(request: Request) {
   }
 
   return json({ due: due.length, sent, skipped, removedDevices: gone.size })
-}
+})

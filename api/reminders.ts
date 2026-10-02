@@ -1,4 +1,4 @@
-import { checkAccess, error, json, readJson } from './_lib/http.js'
+import { checkAccess, error, guard, json, readJson } from './_lib/http.js'
 import { isSubscription, pushConfigured, sendPush } from './_lib/push.js'
 import { deviceId, getStore, type Reminder } from './_lib/store.js'
 
@@ -32,7 +32,7 @@ function cleanReminders(raw: unknown, now: number): Reminder[] {
  * Le téléphone envoie la liste complète de ses rappels à venir ; elle remplace la précédente.
  * Les notes elles-mêmes restent sur le téléphone : seuls titre, heure et courte description transitent.
  */
-export async function PUT(request: Request) {
+export const PUT = guard(async (request: Request) => {
   const denied = checkAccess(request)
   if (denied) return denied
   if (!pushConfigured()) return error(503, 'Notifications non configurées sur le serveur (clés VAPID)')
@@ -55,14 +55,14 @@ export async function PUT(request: Request) {
   }
 
   return json({ scheduled: reminders.length })
-}
+})
 
 /** Désactivation des notifications sur un appareil. */
-export async function DELETE(request: Request) {
+export const DELETE = guard(async (request: Request) => {
   const denied = checkAccess(request)
   if (denied) return denied
   const input = await readJson<SyncRequest>(request)
   if (!isSubscription(input?.subscription)) return error(400, 'Abonnement push invalide')
   await getStore().removeDevice(deviceId(input.subscription.endpoint))
   return json({ ok: true })
-}
+})
