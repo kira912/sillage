@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { db, emptyTrash, exportJson, importJson, importText, restoreNote, trashedNotes } from '../lib/db'
 import { fmt, toKey } from '../lib/dates'
 import { AssistantSettings } from './AssistantSettings'
-import { SpaceSettings } from './SpaceSettings'
+import { InviteCard, SpaceSettings } from './SpaceSettings'
 import { useToast } from './Toast'
 
 export function SettingsView() {
@@ -62,6 +62,8 @@ export function SettingsView() {
 
   return (
     <section className="view">
+      <InviteCard />
+
       <h2 className="section__title">Mes données</h2>
       <div className="group">
         <div className="row">

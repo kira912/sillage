@@ -14,6 +14,7 @@ import {
   useSpace,
   type SpaceState,
 } from '../lib/space'
+import { isIos, isStandalone } from '../lib/platform'
 import { useToast } from './Toast'
 
 /** Code reçu via un lien `#rejoindre=…` (ouvert dans le navigateur). */
@@ -35,11 +36,91 @@ export function SpaceSettings() {
   )
 }
 
+/**
+ * Encart affiché en haut des réglages quand l'app est ouverte par un lien d'invitation (#rejoindre=…) :
+ * sans lui, le formulaire serait caché plus bas, sous « Mes données ».
+ */
+export function InviteCard() {
+  const space = useSpace()
+  const [invite, setInvite] = useState(inviteFromHash)
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [errorMsg, setErrorMsg] = useState('')
+  const toast = useToast()
+  // Sur iPhone, le lien s'ouvre dans Safari, dont les données sont séparées de celles de l'app installée.
+  const inBrowserOnIos = isIos() && !isStandalone()
+
+  if (!invite) return null
+
+  function close() {
+    history.replaceState(null, '', location.pathname)
+    setInvite('')
+  }
+
+  async function join() {
+    setBusy(true)
+    setErrorMsg('')
+    try {
+      await joinSpace(invite, name.trim())
+      close()
+      toast('Espace rejoint')
+    } catch (e) {
+      setErrorMsg((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function copyCode() {
+    try {
+      await navigator.clipboard.writeText(decodeURIComponent(invite.replace(/^rejoindre=/, '')))
+      toast('Code copié')
+    } catch {
+      toast('Copie impossible')
+    }
+  }
+
+  return (
+    <div className="invite-card">
+      <button className="invite-card__close" aria-label="Fermer" onClick={close}><X size={18} /></button>
+      <span className="invite-card__icon"><UserPlus size={22} /></span>
+      <p className="invite-card__title">Invitation à un espace partagé</p>
+      {space ? (
+        <p className="invite-card__text">
+          Ce téléphone est déjà dans l’espace « {space.name} ». Quittez-le (plus bas, section Partage) pour en rejoindre
+          un autre.
+        </p>
+      ) : (
+        <>
+          <p className="invite-card__text">
+            Les notes partagées de l’espace apparaîtront dans vos notes, chiffrées : seuls ses membres peuvent les lire.
+          </p>
+          {inBrowserOnIos && (
+            <div className="invite-card__hint">
+              <p>Vous utilisez l’app installée sur l’écran d’accueil ? Copiez le code et collez-le dans l’app : Réglages → Partage → Rejoindre un espace.</p>
+              <button className="btn btn--small" onClick={copyCode}><Copy size={14} /> Copier le code</button>
+            </div>
+          )}
+          <label className="form__field">
+            Votre prénom
+            <input className="field" value={name} placeholder="Visible par les autres membres" onChange={(e) => setName(e.target.value)} />
+          </label>
+          {errorMsg && <p className="capture__error">{errorMsg}</p>}
+          <button className="btn btn--primary invite-card__submit" disabled={!name.trim() || busy} onClick={join}>
+            {busy && <span className="spinner" />}
+            Rejoindre l’espace
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
 function SpaceSetup() {
-  const [mode, setMode] = useState<'none' | 'create' | 'join'>(() => (inviteFromHash() ? 'join' : 'none'))
+  const [mode, setMode] = useState<'none' | 'create' | 'join'>('none')
   const [spaceName, setSpaceName] = useState('Famille')
   const [name, setName] = useState('')
-  const [invite, setInvite] = useState(inviteFromHash)
+  const [invite, setInvite] = useState('')
   const [busy, setBusy] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const toast = useToast()
@@ -50,7 +131,6 @@ function SpaceSetup() {
     try {
       if (mode === 'create') await createSpace(spaceName.trim() || 'Famille', name.trim())
       else await joinSpace(invite, name.trim())
-      if (inviteFromHash()) history.replaceState(null, '', location.pathname)
       toast(mode === 'create' ? 'Espace créé' : 'Espace rejoint')
     } catch (e) {
       setErrorMsg((e as Error).message)

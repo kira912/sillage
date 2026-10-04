@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { CalendarDays, NotebookPen, Plus, Settings, Sparkles, Sun } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { AgendaView } from './components/AgendaView'
-import { InstallHint } from './components/InstallHint'
+import { InstallHint, InstallSheet } from './components/InstallHint'
 import { NoteEditor } from './components/NoteEditor'
 import { NotesView } from './components/NotesView'
 import { QuickCapture } from './components/QuickCapture'
@@ -127,6 +127,7 @@ export default function App() {
           </button>
         ))}
       </nav>
+      <InstallSheet />
     </div>
   )
 }
