@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import { api, getAccessCode, setAccessCode } from './api'
+import { api } from './api'
 import { db, newId } from './db'
 import { SECRET_RE, decryptJson, encryptJson, generateSecret, keyFor, spaceIdFor } from './space-crypto'
 import type { Note } from './types'
@@ -81,24 +81,22 @@ export function useSpace(): SpaceState | null {
 }
 
 /* ------------------------------------------------------------------------------------------------
- * Invitation : « secret.codeAccès », pour rejoindre en une seule étape
+ * Invitation : le code secret de l'espace (il n'inclut plus le code d'accès, réservé à l'IA et aux rappels)
  * ---------------------------------------------------------------------------------------------- */
 
 export function inviteCode(state: SpaceState): string {
-  const access = getAccessCode()
-  return access ? `${state.secret}.${access}` : state.secret
+  return state.secret
 }
 
 export function inviteLink(state: SpaceState): string {
   return `${location.origin}/#rejoindre=${encodeURIComponent(inviteCode(state))}`
 }
 
-/** Accepte un lien d'invitation complet ou le code seul. */
-export function parseInvite(input: string): { secret: string; access?: string } | null {
+/** Accepte un lien d'invitation complet ou le code seul (les anciens codes « secret.codeAccès » restent valides). */
+export function parseInvite(input: string): string | null {
   const raw = decodeURIComponent(input.trim().match(/rejoindre=([^&\s]+)/)?.[1] ?? input.trim())
-  const [secret, ...rest] = raw.split('.')
-  if (!SECRET_RE.test(secret)) return null
-  return { secret, access: rest.join('.') || undefined }
+  const secret = raw.split('.')[0]
+  return SECRET_RE.test(secret) ? secret : null
 }
 
 /* ------------------------------------------------------------------------------------------------
@@ -126,10 +124,9 @@ export async function createSpace(name: string, memberName: string) {
 }
 
 export async function joinSpace(invite: string, memberName: string) {
-  const parsed = parseInvite(invite)
-  if (!parsed) throw new Error('Code d’invitation invalide')
-  if (parsed.access) setAccessCode(parsed.access)
-  const [spaceId, key] = await Promise.all([spaceIdFor(parsed.secret), keyFor(parsed.secret)])
+  const secret = parseInvite(invite)
+  if (!secret) throw new Error('Code d’invitation invalide')
+  const [spaceId, key] = await Promise.all([spaceIdFor(secret), keyFor(secret)])
   const memberId = newId()
   const res = await api<{ meta: string; members: { id: string; blob: string; lastSeen: number }[] }>('space', {
     body: { action: 'join', space: spaceId, member: { id: memberId, blob: await memberBlob(key, memberName) } },
@@ -138,7 +135,7 @@ export async function joinSpace(invite: string, memberName: string) {
     throw new Error('Code d’invitation invalide')
   })
   writeState({
-    secret: parsed.secret,
+    secret,
     spaceId,
     name: meta.name,
     tags: meta.tags,
@@ -213,6 +210,8 @@ interface SyncResponse {
   entries: Entry[]
   accepted: { id: string; rev: number }[]
   conflicts: Entry[]
+  /** Espace plein : certaines notes n'ont pas pu être envoyées. */
+  full?: boolean
   meta: string | null
   members: { id: string; blob: string; lastSeen: number }[]
 }
@@ -306,6 +305,7 @@ async function runSync() {
     // Si le nom ou les étiquettes ont encore changé pendant l'envoi, on garde la version locale.
     ...(meta && !(current.metaDirty && (current.name !== s.name || current.tags !== s.tags)) ? { name: meta.name, tags: meta.tags, metaDirty: false } : {}),
   })
+  if (res.full) throw new Error('Espace plein : supprimez des notes partagées pour en ajouter d’autres')
 }
 
 async function applyEntry(key: CryptoKey, e: Entry, force: boolean) {

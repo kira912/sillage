@@ -73,7 +73,7 @@ Variables d'environnement à définir dans Vercel → *Settings → Environment 
 
 | Variable | Rôle |
 | --- | --- |
-| `SILLAGE_ACCESS_CODE` | Code partagé, saisi une fois dans Réglages sur chaque téléphone. Protège l'IA et les rappels. |
+| `SILLAGE_ACCESS_CODE` | Code partagé, saisi une fois dans Réglages sur chaque téléphone. Protège l'IA et les rappels (pas l'espace partagé). |
 | `ANTHROPIC_API_KEY` | Clé API pour la saisie rapide. `SILLAGE_MODEL` (optionnel) change de modèle. |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Clés des notifications : `pnpm dlx web-push generate-vapid-keys`. Ne plus les changer ensuite (sinon réabonnement). |
 | `CRON_SECRET` | Secret du déclencheur d'envoi des rappels. |
@@ -96,8 +96,9 @@ jamais envoyée au serveur). Les notes personnelles ne quittent pas le télépho
 
 ### Espace partagé
 
-Réglages → Partage → *Créer un espace partagé*, puis *Inviter quelqu'un* : le code envoyé (par Messages…)
-contient aussi le code d'accès, l'autre personne n'a qu'à le coller dans Réglages → Partage → *Rejoindre*.
+Réglages → Partage → *Créer un espace partagé*, puis *Inviter quelqu'un* : l'autre personne colle le code reçu
+(par Messages…) dans Réglages → Partage → *Rejoindre*. Pas besoin du code d'accès : chacun peut créer son propre
+espace avec les personnes de son choix, et chaque espace est isolé (seul le code d'invitation y donne accès).
 Sur iPhone, un lien n'ouvre pas l'app installée : c'est pour ça que l'invitation passe par un code à coller.
 
 - Synchronisation : après chaque modification, toutes les 20 s quand l'app est ouverte, au retour dans l'app.
@@ -106,4 +107,8 @@ Sur iPhone, un lien n'ouvre pas l'app installée : c'est pour ça que l'invitati
 - Repasser une note en « Perso » la retire de chez les autres (elle part dans leur corbeille).
 - Le chiffrement utilise WebCrypto : il faut HTTPS (ou `localhost`) ; en `http://<ip>` le partage est indisponible.
 - Redis est nécessaire en production (même intégration Upstash que pour les rappels).
+- Contre les abus : 600 appels par 10 min et 5 créations d'espace par heure et par adresse IP, 200 créations par jour
+  au total, 30 membres et 20 Mo de notes (chiffrées) par espace.
+- Un espace dont personne ne se sert pendant un an est supprimé automatiquement ; il l'est aussi quand le dernier
+  membre le quitte.
 

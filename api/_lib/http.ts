@@ -34,7 +34,7 @@ function safeEqual(a: string, b: string) {
 }
 
 /**
- * Les routes de l'app sont protégées par un code d'accès partagé (SILLAGE_ACCESS_CODE),
+ * L'IA et les rappels sont protégés par un code d'accès partagé (SILLAGE_ACCESS_CODE),
  * saisi une fois dans les réglages du téléphone. Sans lui, n'importe qui connaissant l'URL
  * pourrait consommer le crédit API.
  */

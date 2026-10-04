@@ -1,4 +1,5 @@
-import { checkAccess, error, guard, json, readJson } from './_lib/http.js'
+import { error, guard, json, readJson } from './_lib/http.js'
+import { clientIp, rateLimit } from './_lib/rate-limit.js'
 import { getSpaceStore, type SpaceEntry } from './_lib/space-store.js'
 
 const MAX_BLOB = 64_000
@@ -18,16 +19,22 @@ interface Body {
 }
 
 const isBlob = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= MAX_BLOB
+/** Plafond global de créations par jour, au cas où les abus viendraient de nombreuses adresses IP. */
+const MAX_CREATIONS_PER_DAY = 200
 
 /**
  * Espace partagé, actions :
  * - `create` / `join` : crée ou rejoint l'espace (le téléphone fournit l'identifiant dérivé du code d'invitation) ;
  * - `sync` : envoie les notes modifiées (avec la version sur laquelle elles se basent) et reçoit les changements des autres ;
- * - `leave` : retire ce téléphone de la liste des membres.
+ * - `leave` : retire ce téléphone de la liste des membres (l'espace est supprimé avec le dernier membre).
+ *
+ * Pas de code d'accès : n'importe qui peut créer son propre espace. Chaque espace est isolé par son identifiant,
+ * qu'on ne peut connaître qu'avec le code d'invitation. Contre les abus : appels limités par adresse IP, taille et
+ * nombre de membres plafonnés par espace, et un espace inutilisé pendant un an expire.
  */
 export const POST = guard(async (request: Request) => {
-  const denied = checkAccess(request)
-  if (denied) return denied
+  const ip = clientIp(request)
+  if (!(await rateLimit(`space:${ip}`, 600, 600))) return error(429, 'Trop de requêtes, réessayez dans quelques minutes')
 
   const body = await readJson<Body>(request, 4_000_000)
   if (!body || typeof body.space !== 'string' || !SPACE_RE.test(body.space)) return error(400, 'Espace invalide')
@@ -37,11 +44,15 @@ export const POST = guard(async (request: Request) => {
   const memberId = member.id
   const store = getSpaceStore()
   const touchMember = () =>
-    isBlob(member.blob) ? store.upsertMember(space, { id: memberId, blob: member.blob, lastSeen: Date.now() }) : Promise.resolve()
+    isBlob(member.blob) ? store.upsertMember(space, { id: memberId, blob: member.blob, lastSeen: Date.now() }) : Promise.resolve(true)
+  const tooManyMembers = () => error(403, 'Cet espace a atteint le nombre maximum de membres')
 
   switch (body.action) {
     case 'create': {
       if (!isBlob(body.meta)) return error(400, 'Données d’espace invalides')
+      if (!(await rateLimit(`space-create:${ip}`, 5, 3600))) return error(429, 'Trop d’espaces créés, réessayez dans une heure')
+      if (!(await rateLimit('space-create', MAX_CREATIONS_PER_DAY, 24 * 3600)))
+        return error(429, 'Trop d’espaces créés aujourd’hui, réessayez demain')
       if (!(await store.create(space, body.meta))) return error(409, 'Cet espace existe déjà')
       await touchMember()
       return json({ ok: true })
@@ -49,7 +60,8 @@ export const POST = guard(async (request: Request) => {
 
     case 'join': {
       if (!(await store.exists(space))) return error(404, 'Aucun espace ne correspond à ce code')
-      await touchMember()
+      if (!(await touchMember())) return tooManyMembers()
+      await store.touch(space)
       return json({ meta: await store.getMeta(space), members: await store.members(space) })
     }
 
@@ -59,28 +71,38 @@ export const POST = guard(async (request: Request) => {
       const changes = Array.isArray(body.changes) ? body.changes : []
       if (changes.length > MAX_CHANGES) return error(413, 'Trop de changements à la fois')
 
+      if (!(await touchMember())) return tooManyMembers()
       const accepted: { id: string; rev: number }[] = []
       const conflicts: SpaceEntry[] = []
+      // Espace plein : les changements suivants sont ignorés, le téléphone les renverra quand il y aura de la place.
+      let full = false
       let count = await store.noteCount(space)
       for (const c of changes as { id?: unknown; baseRev?: unknown; blob?: unknown }[]) {
         if (typeof c?.id !== 'string' || !ID_RE.test(c.id)) continue
         const baseRev = Number.isInteger(c.baseRev) ? (c.baseRev as number) : 0
         const blob = c.blob === null ? null : isBlob(c.blob) ? c.blob : undefined
         if (blob === undefined) continue
-        if (blob && baseRev === 0 && ++count > MAX_NOTES) return error(413, 'Espace plein')
+        if (blob && baseRev === 0 && count + 1 > MAX_NOTES) {
+          full = true
+          continue
+        }
         const result = await store.applyChange(space, c.id, baseRev, blob)
-        if (result.ok) accepted.push({ id: c.id, rev: result.rev })
+        if (result.ok) {
+          accepted.push({ id: c.id, rev: result.rev })
+          if (blob && baseRev === 0) count++
+        } else if ('full' in result) full = true
         else conflicts.push(result.current)
       }
 
       if (isBlob(body.meta)) await store.setMeta(space, body.meta)
-      await touchMember()
+      await store.touch(space)
       const { rev, entries } = await store.changesSince(space, since)
-      return json({ rev, entries, accepted, conflicts, meta: await store.getMeta(space), members: await store.members(space) })
+      return json({ rev, entries, accepted, conflicts, full, meta: await store.getMeta(space), members: await store.members(space) })
     }
 
     case 'leave': {
-      if (await store.exists(space)) await store.removeMember(space, memberId)
+      // Le dernier membre parti, l'espace et ses notes sont supprimés.
+      if ((await store.exists(space)) && (await store.removeMember(space, memberId)) === 0) await store.delete(space)
       return json({ ok: true })
     }
 
