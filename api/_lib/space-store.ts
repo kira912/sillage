@@ -86,8 +86,9 @@ class RedisSpaceStore implements SpaceStore {
       this.redis.get<string>(K.rev(space)),
       this.redis.zrange<string[]>(K.log(space), `(${since}`, '+inf', { byScore: true }),
     ])
-    const raw = ids.length ? await this.redis.hmget<Record<string, string | null>>(K.notes(space), ...ids) : null
-    const entries = ids.flatMap((id) => (raw?.[id] ? [JSON.parse(raw[id]) as SpaceEntry] : []))
+    // Sans désérialisation automatique, HMGET renvoie les valeurs brutes dans l'ordre des champs demandés.
+    const raw = ids.length ? ((await this.redis.hmget(K.notes(space), ...ids)) as unknown as (string | null)[]) : []
+    const entries = raw.flatMap((v) => (v ? [JSON.parse(v) as SpaceEntry] : []))
     return { rev: Number(revRaw ?? 0), entries }
   }
   noteCount(space: string) {
@@ -100,8 +101,9 @@ class RedisSpaceStore implements SpaceStore {
     await this.redis.hdel(K.members(space), id)
   }
   async members(space: string) {
-    const all = await this.redis.hgetall<Record<string, string>>(K.members(space))
-    return Object.values(all ?? {}).map((m) => JSON.parse(m) as Member)
+    // HVALS plutôt que HGETALL : sans désérialisation automatique, HGETALL renvoie un tableau plat [champ, valeur, …].
+    const all = (await this.redis.hvals(K.members(space))) as string[]
+    return all.map((m) => JSON.parse(m) as Member)
   }
 }
 
