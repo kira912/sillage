@@ -1,9 +1,14 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { checkAccess, error, json, readJson } from './_lib/http.js'
+import { checkAccess } from './_lib/auth.js'
+import { error, guard, json, readJson } from './_lib/http.js'
 import { NOTES_SCHEMA, sanitizeNotes } from './_lib/notes.js'
+import { clientIp, rateLimit } from './_lib/rate-limit.js'
 
 const MODEL = process.env.SILLAGE_MODEL || 'claude-opus-5-5'
 const MAX_INPUT = 2000
+/** Plafonds de coût, même avec un code d'accès valide (code fuité, boucle côté client…). */
+const MAX_CALLS_PER_IP_PER_HOUR = 30
+const MAX_CALLS_PER_DAY = 500
 
 const SYSTEM_PROMPT = `You turn short French notes, typed or dictated on a phone, into structured entries for a personal notes and agenda app. Reply with JSON matching the schema; all text you write must be in French.
 
@@ -27,10 +32,13 @@ interface ParseRequest {
 // Instancié à la demande : sans clé, la route répond 503 au lieu de planter au chargement.
 let client: Anthropic | undefined
 
-export async function POST(request: Request) {
-  const denied = checkAccess(request)
+export const POST = guard(async (request: Request) => {
+  const denied = await checkAccess(request)
   if (denied) return denied
   if (!process.env.ANTHROPIC_API_KEY) return error(503, 'Saisie IA non configurée (ANTHROPIC_API_KEY manquante)')
+  if (!(await rateLimit(`parse:${clientIp(request)}`, MAX_CALLS_PER_IP_PER_HOUR, 3600)))
+    return error(429, 'Trop de demandes, réessayez dans une heure')
+  if (!(await rateLimit('parse', MAX_CALLS_PER_DAY, 24 * 3600))) return error(429, 'Limite quotidienne atteinte, réessayez demain')
 
   const input = await readJson<ParseRequest>(request)
   const text = typeof input?.text === 'string' ? input.text.trim() : ''
@@ -85,4 +93,4 @@ export async function POST(request: Request) {
     console.error('[sillage] parse', e)
     return error(500, 'Erreur interne')
   }
-}
+})

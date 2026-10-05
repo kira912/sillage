@@ -4,6 +4,7 @@ import { Mic, Sparkles } from 'lucide-react'
 import { useMemo } from 'react'
 import { activeNotes } from '../lib/db'
 import { agendaRange, byTime, fmt, occursOn, relativeDay, toKey } from '../lib/dates'
+import { useToday } from '../lib/today'
 import { NoteCard } from './NoteCard'
 import { Section } from './Section'
 
@@ -17,7 +18,7 @@ interface Props {
 
 export function TodayView({ onOpen, onCreate, onCapture }: Props) {
   const notes = useLiveQuery(activeNotes, [])
-  const today = useMemo(() => new Date(), [])
+  const today = useToday()
   const todayKey = toKey(today)
 
   const { overdue, todayList, upcoming, pinned } = useMemo(() => {

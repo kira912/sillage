@@ -1,6 +1,5 @@
-import { useLiveQuery } from 'dexie-react-hooks'
 import { CalendarDays, NotebookPen, Plus, Settings, Sparkles, Sun } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AgendaView } from './components/AgendaView'
 import { InstallHint, InstallSheet } from './components/InstallHint'
 import { NoteEditor } from './components/NoteEditor'
@@ -8,10 +7,10 @@ import { NotesView } from './components/NotesView'
 import { QuickCapture } from './components/QuickCapture'
 import { SettingsView } from './components/SettingsView'
 import { TodayView } from './components/TodayView'
-import { activeNotes, db, purgeOldTrash } from './lib/db'
+import { onNotesChanged, purgeOldTrash } from './lib/db'
 import { toKey } from './lib/dates'
 import { isPushEnabled, syncReminders } from './lib/push'
-import { getSpace, syncSpace } from './lib/space'
+import { getSpace, pollDelay, syncSpace } from './lib/space'
 import type { Note } from './lib/types'
 
 type Tab = 'today' | 'notes' | 'agenda' | 'settings'
@@ -48,7 +47,15 @@ export default function App() {
     return () => window.removeEventListener('popstate', onPop)
   }, [])
 
+  // Position de défilement des onglets, restaurée à la fermeture de l'éditeur.
+  const tabScroll = useRef(0)
+  const overlayKind = overlay?.kind
+  useLayoutEffect(() => {
+    window.scrollTo({ top: overlayKind ? 0 : tabScroll.current })
+  }, [overlayKind])
+
   function openOverlay(next: NonNullable<Overlay>) {
+    if (!overlay) tabScroll.current = window.scrollY
     setOverlay(next)
     history.pushState({ overlay: next.kind }, '')
   }
@@ -60,75 +67,74 @@ export default function App() {
 
   function switchTab(next: Tab) {
     setTab(next)
+    tabScroll.current = 0
     window.scrollTo({ top: 0 })
   }
 
-  if (overlay?.kind === 'editor') {
-    const editor = overlay.state
-    return (
-      <div className="app">
-        <NoteEditor
-          key={editor.id ?? 'new'}
-          id={editor.id}
-          defaults={editor.defaults}
-          onClose={() => history.back()}
-          onReplace={(id) => setOverlay({ kind: 'editor', state: { id } })}
-        />
-      </div>
-    )
-  }
-
-  if (overlay?.kind === 'capture') {
-    return (
-      <div className="app">
-        <QuickCapture
-          onClose={() => history.back()}
-          onOpenSettings={() => {
-            history.back()
-            switchTab('settings')
-          }}
-        />
-      </div>
-    )
-  }
-
   return (
-    <div className="app">
-      <header className="topbar">
-        <h1>{TITLES[tab]}</h1>
+    <>
+      {/* Les onglets restent montés sous l'éditeur : recherche, filtres et défilement sont conservés. */}
+      <div className="app" style={overlay ? { display: 'none' } : undefined}>
+        <header className="topbar">
+          <h1>{TITLES[tab]}</h1>
+          {tab !== 'settings' && (
+            <button className="icon-btn topbar__action" onClick={capture} aria-label="Saisie rapide">
+              <Sparkles size={22} />
+            </button>
+          )}
+        </header>
+        {tab === 'today' && <InstallHint />}
+        <main>
+          {tab === 'today' && <TodayView onOpen={open} onCreate={create} onCapture={capture} />}
+          {tab === 'notes' && <NotesView onOpen={open} />}
+          {tab === 'agenda' && <AgendaView selected={selectedDay} onSelect={setSelectedDay} onOpen={open} />}
+          {tab === 'settings' && <SettingsView />}
+        </main>
         {tab !== 'settings' && (
-          <button className="icon-btn topbar__action" onClick={capture} aria-label="Saisie rapide">
-            <Sparkles size={22} />
+          <button className="fab" onClick={create} aria-label="Nouvelle note">
+            <Plus size={28} strokeWidth={2.5} />
           </button>
         )}
-      </header>
-      {tab === 'today' && <InstallHint />}
-      <main>
-        {tab === 'today' && <TodayView onOpen={open} onCreate={create} onCapture={capture} />}
-        {tab === 'notes' && <NotesView onOpen={open} />}
-        {tab === 'agenda' && <AgendaView selected={selectedDay} onSelect={setSelectedDay} onOpen={open} />}
-        {tab === 'settings' && <SettingsView />}
-      </main>
-      {tab !== 'settings' && (
-        <button className="fab" onClick={create} aria-label="Nouvelle note">
-          <Plus size={28} strokeWidth={2.5} />
-        </button>
+        <nav className="tabbar">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              className={`tabbar__item${tab === id ? ' tabbar__item--on' : ''}`}
+              onClick={() => switchTab(id)}
+              aria-current={tab === id ? 'page' : undefined}
+            >
+              <Icon size={22} strokeWidth={tab === id ? 2.4 : 1.8} />
+              {label}
+            </button>
+          ))}
+        </nav>
+        {!overlay && <InstallSheet />}
+      </div>
+
+      {overlay?.kind === 'editor' && (
+        <div className="app">
+          <NoteEditor
+            key={overlay.state.id ?? 'new'}
+            id={overlay.state.id}
+            defaults={overlay.state.defaults}
+            onClose={() => history.back()}
+            onReplace={(id) => setOverlay({ kind: 'editor', state: { id } })}
+          />
+        </div>
       )}
-      <nav className="tabbar">
-        {TABS.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            className={`tabbar__item${tab === id ? ' tabbar__item--on' : ''}`}
-            onClick={() => switchTab(id)}
-            aria-current={tab === id ? 'page' : undefined}
-          >
-            <Icon size={22} strokeWidth={tab === id ? 2.4 : 1.8} />
-            {label}
-          </button>
-        ))}
-      </nav>
-      <InstallSheet />
-    </div>
+
+      {overlay?.kind === 'capture' && (
+        <div className="app">
+          <QuickCapture
+            onClose={() => history.back()}
+            onOpenSettings={() => {
+              history.back()
+              switchTab('settings')
+            }}
+          />
+        </div>
+      )}
+    </>
   )
 }
 
@@ -137,46 +143,51 @@ export default function App() {
  * et au retour dans l'app (la fenêtre de planification avance avec le temps).
  */
 function useReminderSync() {
-  const notes = useLiveQuery(activeNotes, [])
-
   useEffect(() => {
-    if (!notes || !isPushEnabled()) return
-    const t = setTimeout(() => syncReminders().catch(() => {}), 1500)
-    return () => clearTimeout(t)
-  }, [notes])
-
-  useEffect(() => {
-    const onVisible = () => document.visibilityState === 'visible' && isPushEnabled() && syncReminders().catch(() => {})
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const sync = () => isPushEnabled() && syncReminders().catch(() => {})
+    const stop = onNotesChanged(() => {
+      clearTimeout(timer)
+      timer = setTimeout(sync, 1500)
+    })
+    const onVisible = () => document.visibilityState === 'visible' && sync()
     document.addEventListener('visibilitychange', onVisible)
-    return () => document.removeEventListener('visibilitychange', onVisible)
+    sync()
+    return () => {
+      stop()
+      clearTimeout(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [])
 }
 
-const SPACE_POLL_MS = 20_000
-
 /**
- * Synchronise l'espace partagé : peu après chaque modification locale, toutes les 20 s quand l'app est
- * au premier plan (pour voir les changements de l'autre personne), au retour dans l'app et au retour du réseau.
+ * Synchronise l'espace partagé : peu après chaque modification locale (seulement s'il y a quelque chose à
+ * envoyer), régulièrement quand l'app est au premier plan (toutes les 20 s si l'espace est actif, jusqu'à
+ * 2 min s'il est calme), au retour dans l'app et au retour du réseau.
  */
 function useSpaceSync() {
-  const notes = useLiveQuery(() => db.notes.toArray(), [])
-
   useEffect(() => {
-    if (!notes || !getSpace()) return
-    const t = setTimeout(() => void syncSpace(), 800)
-    return () => clearTimeout(t)
-  }, [notes])
-
-  useEffect(() => {
+    let changeTimer: ReturnType<typeof setTimeout> | undefined
+    let pollTimer: ReturnType<typeof setTimeout> | undefined
     const sync = () => document.visibilityState === 'visible' && getSpace() && void syncSpace()
-    const interval = setInterval(sync, SPACE_POLL_MS)
+    const poll = () => {
+      sync()
+      pollTimer = setTimeout(poll, pollDelay())
+    }
+    const stop = onNotesChanged(() => {
+      clearTimeout(changeTimer)
+      changeTimer = setTimeout(() => getSpace() && void syncSpace({ onlyIfChanges: true }), 800)
+    })
+    poll()
     document.addEventListener('visibilitychange', sync)
     window.addEventListener('online', sync)
     return () => {
-      clearInterval(interval)
+      stop()
+      clearTimeout(changeTimer)
+      clearTimeout(pollTimer)
       document.removeEventListener('visibilitychange', sync)
       window.removeEventListener('online', sync)
     }
   }, [])
 }
-

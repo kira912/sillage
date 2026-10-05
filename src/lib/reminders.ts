@@ -10,9 +10,12 @@ export interface ScheduledReminder {
   body: string
 }
 
-/** Fenêtre planifiée à l'avance : elle est recalculée à chaque ouverture de l'app ou modification. */
-export const HORIZON_DAYS = 30
-const MAX_REMINDERS = 300
+/**
+ * Fenêtre planifiée à l'avance : elle est recalculée à chaque ouverture de l'app ou modification.
+ * Au-delà, sans ouverture de l'app, les rappels s'arrêtent (limites identiques côté serveur).
+ */
+export const HORIZON_DAYS = 60
+const MAX_REMINDERS = 500
 
 /**
  * Instant du rappel d'une occurrence. Mêmes règles que l'export Calendrier :

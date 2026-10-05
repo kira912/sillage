@@ -60,9 +60,13 @@ export function nextOccurrence(note: Note, from: Date): Date | null {
     const d = fromKey(note.date)
     return differenceInCalendarDays(d, from) >= 0 ? d : null
   }
+  // Répétition terminée : rien à chercher (sans ce test, on parcourrait 400 jours pour rien à chaque affichage).
+  const until = note.recurrence.until
+  if (until && until < toKey(from)) return null
   const start = fromKey(note.date)
   let day = differenceInCalendarDays(start, from) > 0 ? start : from
-  for (let i = 0; i < 400; i++, day = addDays(day, 1)) {
+  const last = until ? fromKey(until) : null
+  for (let i = 0; i < 400 && (!last || day <= last); i++, day = addDays(day, 1)) {
     if (occursOn(note, day)) return day
   }
   return null

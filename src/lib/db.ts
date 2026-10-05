@@ -1,4 +1,5 @@
-import Dexie, { type Table } from 'dexie'
+import Dexie, { type ObservabilitySet, type Table } from 'dexie'
+import { sanitizeNote } from './note-schema'
 import type { Note, SyncMeta } from './types'
 
 class SillageDB extends Dexie {
@@ -18,6 +19,20 @@ class SillageDB extends Dexie {
 }
 
 export const db = new SillageDB()
+
+const NOTES_PART = `idb://${db.name}/notes/`
+
+/**
+ * Appelle `listener` après chaque modification des notes, sans relire la table
+ * (contrairement à `useLiveQuery`, qui recharge toutes les notes à chaque fois).
+ */
+export function onNotesChanged(listener: () => void): () => void {
+  const handler = (parts: ObservabilitySet) => {
+    if (Object.keys(parts).some((part) => part.startsWith(NOTES_PART))) listener()
+  }
+  Dexie.on.storagemutated.subscribe(handler)
+  return () => Dexie.on.storagemutated.unsubscribe(handler)
+}
 
 const TRASH_RETENTION_MS = 30 * 24 * 3600 * 1000
 
@@ -102,13 +117,38 @@ export async function exportJson(): Promise<string> {
   return JSON.stringify({ app: 'sillage', version: 1, exportedAt: new Date().toISOString(), notes }, null, 2)
 }
 
+/**
+ * Restaure une sauvegarde. Les notes mal formées sont ignorées ; une note déjà présente n'est remplacée
+ * que si la sauvegarde en contient une version plus récente.
+ */
 export async function importJson(text: string): Promise<number> {
   const data = JSON.parse(text)
-  const notes: Note[] = Array.isArray(data) ? data : data?.notes
-  if (!Array.isArray(notes)) throw new Error('Fichier invalide')
-  const valid = notes.filter((n) => n && typeof n.id === 'string')
-  await db.notes.bulkPut(valid.map((n) => ({ ...newNote(), ...n })))
-  return valid.length
+  const raw: unknown = Array.isArray(data) ? data : data?.notes
+  if (!Array.isArray(raw)) throw new Error('Fichier invalide')
+  const valid = raw.flatMap((n) => sanitizeNote(n) ?? [])
+  return db.transaction('rw', db.notes, async () => {
+    const existing = await db.notes.bulkGet(valid.map((n) => n.id))
+    const newer = valid.filter((n, i) => !existing[i] || n.updatedAt > existing[i]!.updatedAt)
+    await db.notes.bulkPut(newer)
+    return newer.length
+  })
+}
+
+/** Remet au bon format les notes enregistrées (et supprime celles qui sont inutilisables). Renvoie le nombre de corrections. */
+export async function repairNotes(): Promise<number> {
+  return db.transaction('rw', db.notes, async () => {
+    const all = await db.notes.toArray()
+    const invalid: string[] = []
+    const fixed: Note[] = []
+    for (const raw of all) {
+      const note = sanitizeNote(raw)
+      if (!note) invalid.push((raw as { id: string }).id)
+      else if (JSON.stringify(note) !== JSON.stringify(raw)) fixed.push(note)
+    }
+    await db.notes.bulkDelete(invalid)
+    await db.notes.bulkPut(fixed)
+    return invalid.length + fixed.length
+  })
 }
 
 /**

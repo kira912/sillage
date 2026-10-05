@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Bell, CalendarDays, ChevronLeft, ListChecks, Mic, Repeat, Sparkles } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ApiError, api, getAccessCode } from '../lib/api'
 import { checklistProgress } from '../lib/checklist'
 import { activeNotes, db, newNote } from '../lib/db'
@@ -31,19 +31,26 @@ export function QuickCapture({ onClose, onOpenSettings }: Props) {
   const notes = useLiveQuery(activeNotes, [])
   const toast = useToast()
   const hasCode = !!getAccessCode()
+  // Analyse en cours annulée si l'écran est fermé.
+  const request = useRef<AbortController | null>(null)
+  useEffect(() => () => request.current?.abort(), [])
 
   async function analyze() {
     setLoading(true)
     setErrorMsg('')
+    request.current = new AbortController()
     try {
       const tags = [...new Set((notes ?? []).flatMap((n) => n.tags))]
       const { notes: result } = await api<{ notes: Draft[] }>('parse', {
         body: { text, today: toKey(new Date()), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, tags },
+        timeoutMs: 60_000,
+        signal: request.current.signal,
       })
       if (!result.length) setErrorMsg('Rien à noter n’a été trouvé dans ce texte.')
       setDrafts(result.length ? result : null)
       setSelected(result.map(() => true))
     } catch (e) {
+      if (request.current?.signal.aborted) return
       setErrorMsg(e instanceof ApiError && e.status === 401 ? 'Code d’accès invalide : vérifiez-le dans les réglages.' : (e as Error).message)
     } finally {
       setLoading(false)

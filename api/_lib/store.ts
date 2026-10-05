@@ -20,17 +20,32 @@ export interface Store {
   replaceDevice(device: string, subscription: PushSubscription, reminders: Reminder[]): Promise<void>
   getSubscription(device: string): Promise<PushSubscription | null>
   removeDevice(device: string): Promise<void>
-  /** Retire et renvoie les rappels arrivés à échéance (chaque rappel n'est rendu qu'une fois). */
-  claimDue(now: number): Promise<DueReminder[]>
+  /**
+   * Retire et renvoie au plus `limit` rappels arrivés à échéance, de façon atomique :
+   * deux crons simultanés ne reçoivent jamais le même rappel.
+   */
+  claimDue(now: number, limit: number): Promise<DueReminder[]>
+  /** Remet en file des rappels réclamés dont l'envoi a échoué temporairement. */
+  requeue(reminders: DueReminder[]): Promise<void>
+  recordCronRun(at: number): Promise<void>
+  lastCronRun(): Promise<number | null>
 }
 
 export const deviceId = (endpoint: string) => createHash('sha256').update(endpoint).digest('hex').slice(0, 32)
 
 const K = {
   due: 'sillage:due',
+  cronLast: 'sillage:cron:last',
   sub: (d: string) => `sillage:sub:${d}`,
   items: (d: string) => `sillage:items:${d}`,
 }
+
+// Lecture et retrait dans le même script : un rappel n'est réclamé qu'une fois, en un seul aller-retour.
+const CLAIM_DUE = `
+local items = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1], 'LIMIT', 0, tonumber(ARGV[2]))
+if #items > 0 then redis.call('ZREM', KEYS[1], unpack(items)) end
+return items
+`
 
 class RedisStore implements Store {
   constructor(private redis: Redis) {}
@@ -63,18 +78,35 @@ class RedisStore implements Store {
     await tx.exec()
   }
 
-  async claimDue(now: number) {
-    const members = await this.redis.zrange<string[]>(K.due, 0, now, { byScore: true })
-    const claimed: DueReminder[] = []
-    for (const member of members) {
-      // ZREM renvoie 1 seulement pour l'appel qui retire l'élément : deux crons simultanés n'envoient pas en double.
-      if ((await this.redis.zrem(K.due, member)) === 1) {
-        const r = JSON.parse(member) as DueReminder
-        await this.redis.srem(K.items(r.device), member)
-        claimed.push(r)
-      }
+  async claimDue(now: number, limit: number) {
+    const members = await this.redis.eval<string[], string[]>(CLAIM_DUE, [K.due], [String(now), String(limit)])
+    const claimed = members.map((m) => JSON.parse(m) as DueReminder)
+    if (claimed.length) {
+      const pipeline = this.redis.pipeline()
+      claimed.forEach((r, i) => pipeline.srem(K.items(r.device), members[i]))
+      await pipeline.exec()
     }
     return claimed
+  }
+
+  async requeue(reminders: DueReminder[]) {
+    if (!reminders.length) return
+    const pipeline = this.redis.pipeline()
+    for (const r of reminders) {
+      const member = JSON.stringify(r)
+      pipeline.zadd(K.due, { score: r.at, member })
+      pipeline.sadd(K.items(r.device), member)
+    }
+    await pipeline.exec()
+  }
+
+  async recordCronRun(at: number) {
+    await this.redis.set(K.cronLast, String(at))
+  }
+
+  async lastCronRun() {
+    const raw = await this.redis.get<string>(K.cronLast)
+    return raw ? Number(raw) : null
   }
 }
 
@@ -94,13 +126,25 @@ class MemoryStore implements Store {
     this.subs.delete(device)
     this.due.delete(device)
   }
-  async claimDue(now: number) {
+  private cronLast: number | null = null
+
+  async claimDue(now: number, limit: number) {
     const out: DueReminder[] = []
     for (const [device, list] of this.due) {
-      out.push(...list.filter((r) => r.at <= now))
-      this.due.set(device, list.filter((r) => r.at > now))
+      const due = list.filter((r) => r.at <= now).slice(0, limit - out.length)
+      out.push(...due)
+      this.due.set(device, list.filter((r) => !due.includes(r)))
     }
     return out
+  }
+  async requeue(reminders: DueReminder[]) {
+    for (const r of reminders) this.due.set(r.device, [...(this.due.get(r.device) ?? []), r])
+  }
+  async recordCronRun(at: number) {
+    this.cronLast = at
+  }
+  async lastCronRun() {
+    return this.cronLast
   }
 }
 

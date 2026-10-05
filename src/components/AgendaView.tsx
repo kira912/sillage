@@ -13,6 +13,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { activeNotes } from '../lib/db'
 import { byTime, fmt, occursOn, relativeDay, toKey } from '../lib/dates'
+import { useToday } from '../lib/today'
 import { NoteCard } from './NoteCard'
 
 interface Props {
@@ -25,7 +26,7 @@ export function AgendaView({ selected, onSelect, onOpen }: Props) {
   const [month, setMonth] = useState(() => startOfMonth(selected))
   const notes = useLiveQuery(activeNotes, [])
   const dated = useMemo(() => (notes ?? []).filter((n) => n.date), [notes])
-  const today = useMemo(() => new Date(), [])
+  const today = useToday()
   const touchX = useRef<number | null>(null)
 
   const days = useMemo(() => {

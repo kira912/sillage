@@ -1,7 +1,9 @@
 import { CalendarDays, ListChecks, MapPin, Pin, Repeat, Users } from 'lucide-react'
+import { useMemo } from 'react'
 import { CHECK_RE, checklistProgress, toggleLine } from '../lib/checklist'
 import { db, restoreNote, toggleDone, trashNote } from '../lib/db'
 import { describeRecurrence, fmt, fromKey, nextOccurrence, relativeDay } from '../lib/dates'
+import { useToday } from '../lib/today'
 import type { Note } from '../lib/types'
 import { SwipeToDelete } from './SwipeToDelete'
 import { useToast } from './Toast'
@@ -22,7 +24,8 @@ export function NoteCard({ note, onOpen, dayKey, showDate }: Props) {
   const preview = lines.slice(0, PREVIEW_LINES)
   const done = dayKey ? note.doneDates.includes(dayKey) : false
   const progress = checklistProgress(note.body)
-  const next = !dayKey && note.date ? nextOccurrence(note, new Date()) : null
+  const today = useToday()
+  const next = useMemo(() => (!dayKey && note.date ? nextOccurrence(note, today) : null), [note, dayKey, today])
   const toast = useToast()
 
   async function remove() {

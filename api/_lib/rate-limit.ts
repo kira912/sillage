@@ -37,3 +37,11 @@ export async function rateLimit(key: string, limit: number, windowSeconds: numbe
   }
   return ++entry.count <= limit
 }
+
+/** Nombre d'appels déjà comptés pour `key` dans la fenêtre en cours, sans en ajouter. */
+export async function hitCount(key: string): Promise<number> {
+  const redis = getRedis()
+  if (redis) return Number((await redis.get<string>(`sillage:rl:${key}`)) ?? 0)
+  const entry = memory.get(key)
+  return entry && entry.resetAt > Date.now() ? entry.count : 0
+}

@@ -109,7 +109,8 @@ export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
 
   function persist(n: Note) {
     if (deleted.current) return
-    if (isEmptyNote(n)) db.notes.delete(n.id)
+    // Une note existante vidée part à la corbeille (avec son dernier contenu) ; une nouvelle note vide disparaît.
+    if (isEmptyNote(n)) void (id ? trashNote(n.id) : db.notes.delete(n.id))
     else db.notes.put(n)
   }
 

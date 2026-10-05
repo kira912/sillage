@@ -37,6 +37,18 @@ Gestionnaire de paquets : **pnpm** (version fixée dans `package.json`).
 pnpm install
 pnpm dev        # http://localhost:5173 et http://<ip-du-pc>:5173 depuis le téléphone (même Wi-Fi)
 pnpm build && pnpm preview   # tester le service worker / le hors ligne
+pnpm test       # tests (Vitest)
+```
+
+Les tests des scripts Lua (Redis) et de la synchronisation sur Redis demandent un vrai Redis, exposé avec
+l'API REST d'Upstash par le proxy [SRH](https://github.com/hiett/serverless-redis-http) ; sans lui, ils sont ignorés
+(la synchronisation est alors testée avec le stockage en mémoire) :
+
+```sh
+redis-server --port 6390 --save '' --daemonize yes
+docker run -d --rm --name srh --network host -e SRH_MODE=env -e SRH_TOKEN=test \
+  -e SRH_CONNECTION_STRING=redis://127.0.0.1:6390 -e SRH_PORT=8079 hiett/serverless-redis-http
+SILLAGE_TEST_REDIS_URL=http://127.0.0.1:8079 SILLAGE_TEST_REDIS_TOKEN=test pnpm test
 ```
 
 Les fonctions de `api/` tournent aussi en local (dev et preview), avec les variables de `.env.local`
@@ -73,7 +85,7 @@ Variables d'environnement à définir dans Vercel → *Settings → Environment 
 
 | Variable | Rôle |
 | --- | --- |
-| `SILLAGE_ACCESS_CODE` | Code partagé, saisi une fois dans Réglages sur chaque téléphone. Protège l'IA et les rappels (pas l'espace partagé). |
+| `SILLAGE_ACCESS_CODE` | Code partagé, saisi une fois dans Réglages sur chaque téléphone. Protège l'IA et les rappels (pas l'espace partagé). Choisir un code long et aléatoire (20 caractères ou plus) : après 10 essais erronés, une adresse IP est bloquée 15 min. |
 | `ANTHROPIC_API_KEY` | Clé API pour la saisie rapide. `SILLAGE_MODEL` (optionnel) change de modèle. |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Clés des notifications : `pnpm dlx web-push generate-vapid-keys`. Ne plus les changer ensuite (sinon réabonnement). |
 | `CRON_SECRET` | Secret du déclencheur d'envoi des rappels. |
@@ -87,8 +99,11 @@ Le plan Hobby de Vercel limite ses crons à un par jour, donc :
   (Vercel envoie alors lui-même `CRON_SECRET`).
 
 Sur l'iPhone : installer l'app sur l'écran d'accueil, puis Réglages → code d'accès → Notifications → Activer.
-Une notification de test confirme que tout fonctionne. Les rappels sont planifiés sur 30 jours glissants et
-recalculés à chaque ouverture de l'app.
+Une notification de test confirme que tout fonctionne. Les rappels sont planifiés sur 60 jours glissants et
+recalculés à chaque ouverture de l'app. Réglages → « Envoi des rappels » indique si le cron tourne
+(« Arrêté » s'il n'est pas passé depuis 10 minutes).
+
+La saisie IA est plafonnée à 30 analyses par heure et par adresse IP, et 500 par jour au total.
 
 **Données transmises** : le texte saisi dans la saisie rapide (pour analyse), et pour les notes avec rappel :
 titre, date/heure et lieu. Les notes partagées transitent chiffrées (AES-GCM, clé dérivée du code d'invitation,
@@ -102,13 +117,18 @@ espace avec les personnes de son choix, et chaque espace est isolé (seul le cod
 Sur iPhone, un lien n'ouvre pas l'app installée : c'est pour ça que l'invitation passe par un code à coller.
 
 - Synchronisation : après chaque modification, toutes les 20 s quand l'app est ouverte, au retour dans l'app.
-- Conflit (même note modifiée des deux côtés avant synchronisation) : la version arrivée en premier sur le serveur
-  l'emporte ; l'autre téléphone la reçoit.
+- Conflit (même note modifiée des deux côtés avant synchronisation) : les deux versions sont fusionnées. Chaque
+  champ modifié d'un seul côté est conservé, et le texte est fusionné ligne par ligne (deux personnes qui cochent
+  des articles différents d'une liste gardent toutes leurs cases). Si le même passage a été réécrit des deux
+  côtés, la version arrivée en premier sur le serveur l'emporte et l'autre est gardée en note personnelle
+  « (version en conflit) ».
 - Repasser une note en « Perso » la retire de chez les autres (elle part dans leur corbeille).
 - Le chiffrement utilise WebCrypto : il faut HTTPS (ou `localhost`) ; en `http://<ip>` le partage est indisponible.
 - Redis est nécessaire en production (même intégration Upstash que pour les rappels).
 - Contre les abus : 600 appels par 10 min et 5 créations d'espace par heure et par adresse IP, 200 créations par jour
-  au total, 30 membres et 20 Mo de notes (chiffrées) par espace.
+  au total, 30 membres, 5 000 notes et 20 Mo de notes (chiffrées) par espace. Les notes supprimées ne comptent pas,
+  et un membre absent depuis 90 jours libère sa place quand l'espace est complet.
+- Une note de plus de 45 Ko environ ne peut pas être partagée : elle reste sur le téléphone et les réglages le signalent.
 - Un espace dont personne ne se sert pendant un an est supprimé automatiquement ; il l'est aussi quand le dernier
   membre le quitte.
 

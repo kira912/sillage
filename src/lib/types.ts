@@ -40,6 +40,9 @@ export interface Note {
   updatedAt: number
 }
 
+/** Contenu d'une note tel qu'il est partagé (sans les champs propres à ce téléphone). */
+export type SharedNote = Omit<Note, 'shared' | 'editedBy'>
+
 /** Suivi local de la synchronisation d'une note partagée. */
 export interface SyncMeta {
   id: string
@@ -47,4 +50,6 @@ export interface SyncMeta {
   rev: number
   /** Empreinte du contenu lors de la dernière synchronisation (différente = modification à envoyer). */
   fp: string
+  /** Contenu lors de la dernière synchronisation : base commune pour fusionner les modifications concurrentes. */
+  base?: SharedNote
 }

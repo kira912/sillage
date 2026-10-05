@@ -1,8 +1,9 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { ArchiveRestore, ChevronRight, ClipboardPaste, Download, ShieldCheck, Trash2, Upload } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { db, emptyTrash, exportJson, importJson, importText, restoreNote, trashedNotes } from '../lib/db'
-import { fmt, toKey } from '../lib/dates'
+import { saveBackup } from '../lib/backup'
+import { db, emptyTrash, importJson, importText, restoreNote, trashedNotes } from '../lib/db'
+import { fmt } from '../lib/dates'
 import { AssistantSettings } from './AssistantSettings'
 import { InviteCard, SpaceSettings } from './SpaceSettings'
 import { useToast } from './Toast'
@@ -25,28 +26,10 @@ export function SettingsView() {
     toast(ok ? 'Notes protégées' : 'Le navigateur a refusé. Installez l’app sur l’écran d’accueil.')
   }
 
-  async function doExport() {
-    const file = new File([await exportJson()], `sillage-${toKey(new Date())}.json`, { type: 'application/json' })
-    // Sur iPhone, la feuille de partage permet d'enregistrer dans Fichiers / iCloud Drive.
-    if (navigator.canShare?.({ files: [file] })) {
-      try {
-        await navigator.share({ files: [file], title: 'Sauvegarde Sillage' })
-        return
-      } catch (e) {
-        if ((e as Error).name === 'AbortError') return
-      }
-    }
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(file)
-    a.download = file.name
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(a.href), 10_000)
-  }
-
   async function doImport(file: File) {
     try {
       const n = await importJson(await file.text())
-      toast(`${n} note(s) importée(s)`)
+      toast(n ? `${n} note(s) restaurée(s)` : 'Rien à restaurer : vos notes sont déjà à jour')
     } catch (e) {
       toast(`Échec de l'import : ${(e as Error).message}`)
     }
@@ -72,7 +55,7 @@ export function SettingsView() {
             <button className="btn btn--small" onClick={askPersist}>Activer</button>
           </div>
         )}
-        <button className="group__action" onClick={doExport}>
+        <button className="group__action" onClick={() => saveBackup()}>
           <Download size={18} /> Exporter une sauvegarde
         </button>
         <label className="group__action">

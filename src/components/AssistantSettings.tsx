@@ -1,8 +1,12 @@
-import { Bell, BellOff, KeyRound, Sparkles } from 'lucide-react'
+import { Bell, BellOff, Clock, KeyRound, Sparkles } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { ApiError, fetchConfig, getAccessCode, setAccessCode, type ServerConfig } from '../lib/api'
+import { fmt } from '../lib/dates'
 import { disablePush, enablePush, isPushEnabled, pushSupport } from '../lib/push'
 import { useToast } from './Toast'
+
+/** Le cron passe chaque minute : au-delà de ce délai sans passage, les rappels ne partent plus. */
+const CRON_STALE_MS = 10 * 60_000
 
 type Status = { state: 'idle' } | { state: 'checking' } | { state: 'ok'; config: ServerConfig } | { state: 'error'; message: string }
 
@@ -96,11 +100,18 @@ export function AssistantSettings() {
             )}
           </div>
         )}
+        {config?.push && pushOn && (
+          <div className="row">
+            <span className="row__icon"><Clock size={18} /></span>
+            <span className="row__label row__label--grow">Envoi des rappels</span>
+            <CronValue lastRun={config.cronLastRun} />
+          </div>
+        )}
       </div>
       <p className="footnote">
         {support === 'needs-install'
           ? 'Sur iPhone, les notifications ne sont possibles que pour l’app installée sur l’écran d’accueil (Partager → Sur l’écran d’accueil).'
-          : 'Le texte saisi est envoyé à l’IA pour être analysé. Pour les rappels, seuls le titre, la date et le lieu des notes concernées sont transmis au serveur ; le reste ne quitte pas le téléphone.'}
+          : 'Le texte saisi est envoyé à l’IA pour être analysé. Pour les rappels, le titre, la date et le lieu des notes concernées sont transmis au serveur, en clair, y compris pour les notes partagées ; le reste ne quitte pas le téléphone.'}
       </p>
     </>
   )
@@ -110,4 +121,12 @@ function StatusValue({ status, ok }: { status: Status; ok: boolean }) {
   if (status.state === 'checking') return <span className="row__value muted">Vérification…</span>
   if (status.state === 'error') return <span className="row__value warn">{status.message}</span>
   return ok ? <span className="row__value ok">Disponible</span> : <span className="row__value muted">Non configurée</span>
+}
+
+function CronValue({ lastRun }: { lastRun: number | null }) {
+  if (lastRun === null) return <span className="row__value warn">Jamais lancé</span>
+  // Instant fixé à l'affichage des réglages (le statut est revérifié à chaque ouverture).
+  // eslint-disable-next-line react-hooks/purity
+  if (Date.now() - lastRun > CRON_STALE_MS) return <span className="row__value warn">Arrêté depuis {fmt(new Date(lastRun), 'd MMM HH:mm')}</span>
+  return <span className="row__value ok">Actif</span>
 }

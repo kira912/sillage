@@ -1,8 +1,10 @@
 import { useSyncExternalStore } from 'react'
 import { api } from './api'
-import { db, newId } from './db'
+import { db, newId, newNote } from './db'
+import { mergeNotes } from './merge'
+import { sanitizeNote } from './note-schema'
 import { SECRET_RE, decryptJson, encryptJson, generateSecret, keyFor, spaceIdFor } from './space-crypto'
-import type { Note } from './types'
+import type { Note, SharedNote } from './types'
 
 /* ------------------------------------------------------------------------------------------------
  * État local de l'espace partagé (un seul espace par téléphone)
@@ -36,8 +38,15 @@ interface SpaceMeta {
   tags: string[]
 }
 
+/** Nom et étiquettes de l'espace, déchiffrés et validés (données venant des autres membres). */
+async function decryptMeta(key: CryptoKey, blob: string): Promise<SpaceMeta | null> {
+  const meta = await decryptJson<Partial<SpaceMeta>>(key, blob).catch(() => null)
+  if (!meta || typeof meta.name !== 'string' || !Array.isArray(meta.tags)) return null
+  return { name: meta.name, tags: meta.tags.filter((t): t is string => typeof t === 'string') }
+}
+
 interface NotePayload {
-  note: Omit<Note, 'shared' | 'editedBy'>
+  note: SharedNote
   by: string
 }
 
@@ -131,9 +140,8 @@ export async function joinSpace(invite: string, memberName: string) {
   const res = await api<{ meta: string; members: { id: string; blob: string; lastSeen: number }[] }>('space', {
     body: { action: 'join', space: spaceId, member: { id: memberId, blob: await memberBlob(key, memberName) } },
   })
-  const meta = await decryptJson<SpaceMeta>(key, res.meta).catch(() => {
-    throw new Error('Code d’invitation invalide')
-  })
+  const meta = await decryptMeta(key, res.meta)
+  if (!meta) throw new Error('Code d’invitation invalide')
   writeState({
     secret,
     spaceId,
@@ -178,23 +186,28 @@ export function shouldAutoShare(tags: string[]): boolean {
 
 const LOCAL_ONLY: (keyof Note)[] = ['shared', 'editedBy']
 
-function strip(note: Note): NotePayload['note'] {
+function strip(note: Note): SharedNote {
   const copy: Partial<Note> = { ...note }
   for (const k of LOCAL_ONLY) delete copy[k]
-  return copy as NotePayload['note']
+  return copy as SharedNote
 }
 
-/** Empreinte stable du contenu partagé (indépendante de l'ordre des clés). */
-export function fingerprint(note: Note): string {
-  const data = strip(note) as Record<string, unknown>
-  return JSON.stringify(Object.keys(data).sort().map((k) => [k, data[k]]))
+/** Empreinte stable du contenu partagé (indépendante de l'ordre des clés ; `undefined` équivaut à absent). */
+export function fingerprint(note: Note | SharedNote): string {
+  const data = strip(note as Note) as Record<string, unknown>
+  return JSON.stringify(
+    Object.keys(data)
+      .filter((k) => data[k] !== undefined)
+      .sort()
+      .map((k) => [k, data[k]]),
+  )
 }
 
 async function decryptMembers(key: CryptoKey, raw: { id: string; blob: string; lastSeen: number }[]) {
   const out: SpaceMember[] = []
   for (const m of raw) {
     const data = await decryptJson<{ name: string }>(key, m.blob).catch(() => null)
-    if (data) out.push({ id: m.id, name: data.name, lastSeen: m.lastSeen })
+    if (data && typeof data.name === 'string') out.push({ id: m.id, name: data.name, lastSeen: m.lastSeen })
   }
   return out
 }
@@ -208,65 +221,110 @@ interface Entry {
 interface SyncResponse {
   rev: number
   entries: Entry[]
+  /** D'autres changements attendent : une nouvelle synchronisation les récupère. */
+  more?: boolean
   accepted: { id: string; rev: number }[]
   conflicts: Entry[]
+  /** Changements refusés par le serveur (note trop longue). */
+  rejected?: string[]
   /** Espace plein : certaines notes n'ont pas pu être envoyées. */
   full?: boolean
   meta: string | null
   members: { id: string; blob: string; lastSeen: number }[]
 }
 
+/** Notes envoyées par synchronisation : nombre et taille (la requête doit rester sous la limite de 4,5 Mo de Vercel). */
 const BATCH = 150
-let running: Promise<void> | null = null
-let rerun = false
+const MAX_REQUEST_BYTES = 1_500_000
+/** Taille maximale d'une note chiffrée acceptée par le serveur. */
+const MAX_BLOB = 64_000
 
-/** Lance une synchronisation (une seule à la fois ; un appel pendant l'exécution en déclenche une autre ensuite). */
-export function syncSpace(): Promise<void> {
+/** Notes trop longues pour être partagées (identifiant → empreinte) : inutile de les rechiffrer à chaque passage. */
+const tooLarge = new Map<string, string>()
+
+/** `push` : seulement s'il y a quelque chose à envoyer ; `full` : envoi et réception. */
+type SyncMode = 'push' | 'full'
+
+let running: Promise<void> | null = null
+let rerun: SyncMode | null = null
+/** Dernier changement envoyé ou reçu : la fréquence de synchronisation ralentit quand l'espace est calme. */
+let lastActivity = Date.now()
+
+/**
+ * Lance une synchronisation (une seule à la fois ; un appel pendant l'exécution en déclenche une autre ensuite).
+ * Avec `onlyIfChanges`, aucune requête n'est faite s'il n'y a rien à envoyer (ex. après la modification
+ * d'une note personnelle).
+ */
+export function syncSpace(options: { onlyIfChanges?: boolean } = {}): Promise<void> {
+  const mode: SyncMode = options.onlyIfChanges ? 'push' : 'full'
   if (running) {
-    rerun = true
+    if (rerun !== 'full') rerun = mode
     return running
   }
-  running = runSync()
+  running = runSync(mode)
     .then(() => patchState({ lastSync: Date.now(), lastError: undefined }))
     .catch((e: Error) => patchState({ lastError: e.message }))
     .finally(() => {
       running = null
-      if (rerun) {
-        rerun = false
-        void syncSpace()
-      }
+      const next = rerun
+      rerun = null
+      if (next) void syncSpace({ onlyIfChanges: next === 'push' })
     })
   return running
 }
 
-async function runSync() {
+/** Délai avant la prochaine synchronisation périodique : 20 s si l'espace est actif, jusqu'à 2 min s'il est calme. */
+export function pollDelay(): number {
+  const idle = Date.now() - lastActivity
+  return idle < 2 * 60_000 ? 20_000 : idle < 10 * 60_000 ? 60_000 : 120_000
+}
+
+async function runSync(mode: SyncMode) {
   const s = readState()
   if (!s || !navigator.onLine) return
   const key = await keyFor(s.secret)
 
-  // 1. Ce qui a changé ici depuis la dernière synchronisation.
+  // 1. Ce qui a changé ici depuis la dernière synchronisation, dans la limite d'un envoi.
   const [notes, metas] = await Promise.all([db.notes.toArray(), db.sync.toArray()])
   const metaById = new Map(metas.map((m) => [m.id, m]))
   const noteById = new Map(notes.map((n) => [n.id, n]))
   const changes: { id: string; baseRev: number; blob: string | null }[] = []
-  const sentFp = new Map<string, string | null>()
+  /** Contenu envoyé pour chaque note (`null` = retrait de l'espace). */
+  const sent = new Map<string, SharedNote | null>()
+  let bytes = 0
+  let pending = false
+  const batchFull = () => changes.length >= BATCH || bytes >= MAX_REQUEST_BYTES
 
   for (const n of notes) {
-    if (!n.shared || changes.length >= BATCH) continue
+    if (!n.shared) continue
     const fp = fingerprint(n)
-    const meta = metaById.get(n.id)
-    if (meta?.fp === fp) continue
-    changes.push({ id: n.id, baseRev: meta?.rev ?? 0, blob: await encryptJson(key, { note: strip(n), by: s.memberName } satisfies NotePayload) })
-    sentFp.set(n.id, fp)
+    if (metaById.get(n.id)?.fp === fp || tooLarge.get(n.id) === fp) continue
+    if (batchFull()) {
+      pending = true
+      break
+    }
+    const content = strip(n)
+    const blob = await encryptJson(key, { note: content, by: s.memberName } satisfies NotePayload)
+    if (blob.length > MAX_BLOB) {
+      tooLarge.set(n.id, fp)
+      continue
+    }
+    tooLarge.delete(n.id)
+    changes.push({ id: n.id, baseRev: metaById.get(n.id)?.rev ?? 0, blob })
+    sent.set(n.id, content)
+    bytes += blob.length
   }
   // Notes retirées du partage ou supprimées définitivement : on les retire de l'espace.
   for (const m of metas) {
-    const n = noteById.get(m.id)
-    if ((n && n.shared) || changes.length >= BATCH) continue
+    if (noteById.get(m.id)?.shared) continue
+    if (batchFull()) {
+      pending = true
+      break
+    }
     changes.push({ id: m.id, baseRev: m.rev, blob: null })
-    sentFp.set(m.id, null)
+    sent.set(m.id, null)
   }
-  if (changes.length >= BATCH) rerun = true
+  if (mode === 'push' && !changes.length && !s.metaDirty) return
 
   // 2. Envoi + réception des changements des autres.
   const res = await api<SyncResponse>('space', {
@@ -281,21 +339,31 @@ async function runSync() {
   })
 
   // 3. Application locale.
+  let needsPush = false
   await db.transaction('rw', db.notes, db.sync, async () => {
     for (const a of res.accepted) {
-      const fp = sentFp.get(a.id)
-      if (fp === null || fp === undefined) await db.sync.delete(a.id)
+      const content = sent.get(a.id)
+      if (!content) await db.sync.delete(a.id)
       else {
-        await db.sync.put({ id: a.id, rev: a.rev, fp })
+        await db.sync.put({ id: a.id, rev: a.rev, fp: fingerprint(content), base: content })
         await db.notes.update(a.id, { editedBy: s.memberName })
       }
     }
-    // En cas de conflit, la version déjà enregistrée sur le serveur l'emporte.
-    for (const e of res.conflicts) await applyEntry(key, e, true)
-    for (const e of res.entries) await applyEntry(key, e, false)
+    for (const e of [...res.conflicts, ...res.entries]) {
+      if (await applyEntry(key, e, s.memberName)) needsPush = true
+    }
   })
+  for (const id of res.rejected ?? []) {
+    const n = noteById.get(id)
+    if (n) tooLarge.set(id, fingerprint(n))
+  }
+  if (changes.length || res.entries.some((e) => !res.accepted.some((a) => a.id === e.id && a.rev === e.rev))) {
+    lastActivity = Date.now()
+  }
+  // Encore des changements à envoyer ou à recevoir, ou une fusion à renvoyer : on enchaîne.
+  if (pending || res.more || needsPush) rerun = 'full'
 
-  const meta = res.meta ? await decryptJson<SpaceMeta>(key, res.meta).catch(() => null) : null
+  const meta = res.meta ? await decryptMeta(key, res.meta) : null
   const current = readState()
   if (!current || current.spaceId !== s.spaceId) return
   writeState({
@@ -305,30 +373,77 @@ async function runSync() {
     // Si le nom ou les étiquettes ont encore changé pendant l'envoi, on garde la version locale.
     ...(meta && !(current.metaDirty && (current.name !== s.name || current.tags !== s.tags)) ? { name: meta.name, tags: meta.tags, metaDirty: false } : {}),
   })
+
   if (res.full) throw new Error('Espace plein : supprimez des notes partagées pour en ajouter d’autres')
+  const blocked = [...tooLarge].flatMap(([id, fp]) => {
+    const n = noteById.get(id)
+    return n?.shared && fingerprint(n) === fp ? [n.title || 'Sans titre'] : []
+  })
+  if (blocked.length) throw new Error(`Trop longue pour être partagée : « ${blocked.join(' », « ')} »`)
 }
 
-async function applyEntry(key: CryptoKey, e: Entry, force: boolean) {
+/** Copie personnelle d'une version locale qui n'a pas pu être fusionnée, pour ne rien perdre. */
+async function saveConflictCopy(local: Note) {
+  const now = Date.now()
+  await db.notes.add(
+    newNote({
+      ...strip(local),
+      id: newId(),
+      title: `${local.title || 'Sans titre'} (version en conflit)`,
+      pinned: false,
+      createdAt: now,
+      updatedAt: now,
+    }),
+  )
+}
+
+/**
+ * Applique une version reçue du serveur. Si la note a aussi été modifiée ici depuis la dernière synchronisation,
+ * les deux versions sont fusionnées ; renvoie `true` si le résultat doit être renvoyé au serveur.
+ */
+async function applyEntry(key: CryptoKey, e: Entry, memberName: string): Promise<boolean> {
   const meta = await db.sync.get(e.id)
-  if (!force && meta && meta.rev >= e.rev) return // déjà à jour (souvent : notre propre envoi)
+  if (meta && meta.rev >= e.rev) return false // déjà à jour (souvent : notre propre envoi)
   const local = await db.notes.get(e.id)
 
-  // Modifiée ici après le calcul des changements : on garde la version locale, elle partira au prochain passage.
-  if (!force && local?.shared && meta && fingerprint(local) !== meta.fp) {
+  // Retirée du partage ici, pas encore envoyé : ce choix l'emporte, le retrait partira avec la bonne version.
+  if (local && !local.shared && meta) {
     await db.sync.put({ ...meta, rev: e.rev })
-    return
+    return true
   }
 
   if (e.blob === null) {
     // Retirée de l'espace par l'autre personne : la copie locale part à la corbeille (récupérable).
     if (local?.shared) await db.notes.update(e.id, { shared: false, deletedAt: local.deletedAt ?? Date.now() })
     await db.sync.delete(e.id)
-    return
+    return false
   }
 
   const payload = await decryptJson<NotePayload>(key, e.blob).catch(() => null)
-  if (!payload) return
-  const note: Note = { ...payload.note, shared: true, editedBy: payload.by }
-  await db.notes.put(note)
-  await db.sync.put({ id: e.id, rev: e.rev, fp: fingerprint(note) })
+  const remote = payload ? sanitizeNote(payload.note, e.id) : null
+  if (!remote) {
+    // Illisible ou mal formée : ignorée. Notre version, si elle a changé, la remplacera.
+    if (meta) await db.sync.put({ ...meta, rev: e.rev })
+    return false
+  }
+  const remoteContent = strip(remote)
+  const by = typeof payload?.by === 'string' ? payload.by : undefined
+
+  let next = remoteContent
+  let push = false
+  const localChanged = !!local?.shared && fingerprint(local) !== (meta?.fp ?? fingerprint(remoteContent))
+  if (local && localChanged) {
+    if (meta?.base) {
+      const merged = mergeNotes(meta.base, strip(local), remoteContent)
+      next = merged.note
+      if (merged.conflict) await saveConflictCopy(local)
+    } else {
+      await saveConflictCopy(local)
+    }
+    push = fingerprint(next) !== fingerprint(remoteContent)
+  }
+
+  await db.notes.put({ ...next, shared: true, editedBy: push ? memberName : by })
+  await db.sync.put({ id: e.id, rev: e.rev, fp: fingerprint(remoteContent), base: remoteContent })
+  return push
 }

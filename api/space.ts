@@ -4,7 +4,8 @@ import { getSpaceStore, type SpaceEntry } from './_lib/space-store.js'
 
 const MAX_BLOB = 64_000
 const MAX_CHANGES = 200
-const MAX_NOTES = 5000
+/** Taille visée d'une page de changements : la réponse doit rester sous la limite de Vercel (4,5 Mo). */
+const MAX_RESPONSE_BYTES = 3_000_000
 const ID_RE = /^[A-Za-z0-9_-]{8,100}$/
 /** Identifiant d'espace : empreinte SHA-256 (hex) du code d'invitation, calculée sur le téléphone. */
 const SPACE_RE = /^[a-f0-9]{64}$/
@@ -74,30 +75,35 @@ export const POST = guard(async (request: Request) => {
       if (!(await touchMember())) return tooManyMembers()
       const accepted: { id: string; rev: number }[] = []
       const conflicts: SpaceEntry[] = []
+      /** Changements refusés car invalides (ex. note trop longue) : le téléphone le signale au lieu de les renvoyer. */
+      const rejected: string[] = []
       // Espace plein : les changements suivants sont ignorés, le téléphone les renverra quand il y aura de la place.
       let full = false
-      let count = await store.noteCount(space)
+      // Écritures une par une : chacune est un compare-and-set sur sa propre version.
       for (const c of changes as { id?: unknown; baseRev?: unknown; blob?: unknown }[]) {
         if (typeof c?.id !== 'string' || !ID_RE.test(c.id)) continue
         const baseRev = Number.isInteger(c.baseRev) ? (c.baseRev as number) : 0
         const blob = c.blob === null ? null : isBlob(c.blob) ? c.blob : undefined
-        if (blob === undefined) continue
-        if (blob && baseRev === 0 && count + 1 > MAX_NOTES) {
-          full = true
+        if (blob === undefined) {
+          rejected.push(c.id)
           continue
         }
         const result = await store.applyChange(space, c.id, baseRev, blob)
-        if (result.ok) {
-          accepted.push({ id: c.id, rev: result.rev })
-          if (blob && baseRev === 0) count++
-        } else if ('full' in result) full = true
+        if (result.ok) accepted.push({ id: c.id, rev: result.rev })
+        else if ('full' in result) full = true
         else conflicts.push(result.current)
       }
 
       if (isBlob(body.meta)) await store.setMeta(space, body.meta)
-      await store.touch(space)
-      const { rev, entries } = await store.changesSince(space, since)
-      return json({ rev, entries, accepted, conflicts, full, meta: await store.getMeta(space), members: await store.members(space) })
+      // Les versions en conflit voyagent dans la même réponse : la page de changements se contente du reste.
+      const conflictBytes = conflicts.reduce((sum, e) => sum + (e.blob?.length ?? 0), 0)
+      const [page, meta, members] = await Promise.all([
+        store.changesSince(space, since, Math.max(2 * MAX_BLOB, MAX_RESPONSE_BYTES - conflictBytes)),
+        store.getMeta(space),
+        store.members(space),
+        store.touch(space),
+      ])
+      return json({ ...page, accepted, conflicts, rejected, full, meta, members })
     }
 
     case 'leave': {
