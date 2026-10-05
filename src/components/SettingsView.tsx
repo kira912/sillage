@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { ArchiveRestore, Download, FileText, ShieldCheck, Trash2, Upload } from 'lucide-react'
+import { ArchiveRestore, ChevronRight, ClipboardPaste, Download, ShieldCheck, Trash2, Upload } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { db, emptyTrash, exportJson, importJson, importText, restoreNote, trashedNotes } from '../lib/db'
 import { fmt, toKey } from '../lib/dates'
@@ -8,7 +8,6 @@ import { InviteCard, SpaceSettings } from './SpaceSettings'
 import { useToast } from './Toast'
 
 export function SettingsView() {
-  const count = useLiveQuery(() => db.notes.filter((n) => !n.deletedAt).count(), [])
   const trash = useLiveQuery(trashedNotes, [])
   const [persisted, setPersisted] = useState<boolean | null>(null)
   const [pasteOpen, setPasteOpen] = useState(false)
@@ -66,20 +65,13 @@ export function SettingsView() {
 
       <h2 className="section__title">Mes données</h2>
       <div className="group">
-        <div className="row">
-          <span className="row__icon"><FileText size={18} /></span>
-          <span className="row__label">Notes</span>
-          <span className="row__value muted">{count ?? '…'}</span>
-        </div>
-        <div className="row">
-          <span className="row__icon"><ShieldCheck size={18} /></span>
-          <span className="row__label">Protection contre l’effacement</span>
-          {persisted ? (
-            <span className="row__value ok">Activée</span>
-          ) : (
+        {persisted === false && (
+          <div className="row">
+            <span className="row__icon"><ShieldCheck size={18} /></span>
+            <span className="row__label">Protection contre l’effacement</span>
             <button className="btn btn--small" onClick={askPersist}>Activer</button>
-          )}
-        </div>
+          </div>
+        )}
         <button className="group__action" onClick={doExport}>
           <Download size={18} /> Exporter une sauvegarde
         </button>
@@ -87,21 +79,9 @@ export function SettingsView() {
           <Upload size={18} /> Restaurer une sauvegarde
           <input type="file" accept="application/json,.json" hidden onChange={(e) => e.target.files?.[0] && doImport(e.target.files[0])} />
         </label>
-      </div>
-      <p className="footnote">
-        Les notes sont stockées uniquement sur ce téléphone. Exportez régulièrement une sauvegarde (vers Fichiers ou iCloud
-        Drive).
-      </p>
-
-      <SpaceSettings />
-
-      <AssistantSettings />
-
-      <h2 className="section__title">Importer depuis Notes</h2>
-      <div className="group">
         {!pasteOpen ? (
           <button className="group__action" onClick={() => setPasteOpen(true)}>
-            <FileText size={18} /> Coller des notes existantes
+            <ClipboardPaste size={18} /> Importer depuis l’app Notes
           </button>
         ) : (
           <div className="row-block paste">
@@ -127,6 +107,14 @@ export function SettingsView() {
           </div>
         )}
       </div>
+      <p className="footnote">
+        Les notes sont stockées uniquement sur ce téléphone. Exportez régulièrement une sauvegarde (vers Fichiers ou iCloud
+        Drive).
+      </p>
+
+      <SpaceSettings />
+
+      <AssistantSettings />
 
       <h2 className="section__title">Corbeille</h2>
       <div className="group">
@@ -156,16 +144,17 @@ export function SettingsView() {
       </div>
       <p className="footnote">Les notes de la corbeille sont supprimées automatiquement après 30 jours.</p>
 
-      <h2 className="section__title">Astuces</h2>
-      <ul className="tips">
-        <li>Avec un espace partagé, les notes #courses ou #famille sont visibles par vous deux, et chacun peut cocher les éléments.</li>
-        <li>Touchez ✨ ou « Que faut-il retenir ? » et dictez une phrase : l’IA crée les notes, avec date et répétition.</li>
-        <li>Touchez l’icône liste dans une note pour créer des cases à cocher, cochables directement depuis la liste.</li>
-        <li>Une liste de courses qui revient chaque semaine : donnez-lui une répétition, puis « Tout décocher » après les courses.</li>
-        <li>Pour un rappel sur l’iPhone, choisissez un rappel puis « Ajouter au Calendrier ».</li>
-        <li>Glissez une note vers la gauche pour la supprimer (un glissement long la supprime directement).</li>
-        <li>Dans l’agenda, glissez sur le calendrier pour changer de mois.</li>
-      </ul>
+      <details className="tips-box">
+        <summary className="section__title">
+          Astuces <ChevronRight size={14} className="tips-box__chevron" />
+        </summary>
+        <ul className="tips">
+          <li>Glissez une note vers la gauche pour la supprimer (un glissement long la supprime directement).</li>
+          <li>Une liste de courses qui revient chaque semaine : donnez-lui une répétition, puis « Tout décocher » après les courses.</li>
+          <li>Dans l’agenda, glissez sur le calendrier pour changer de mois.</li>
+          <li>Les notes #courses ou #famille sont partagées automatiquement avec votre espace.</li>
+        </ul>
+      </details>
     </section>
   )
 }

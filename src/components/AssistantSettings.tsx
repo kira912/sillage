@@ -1,7 +1,7 @@
-import { Bell, BellOff, KeyRound, Send, Sparkles } from 'lucide-react'
+import { Bell, BellOff, KeyRound, Sparkles } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { ApiError, fetchConfig, getAccessCode, setAccessCode, type ServerConfig } from '../lib/api'
-import { disablePush, enablePush, isPushEnabled, pushSupport, syncReminders } from '../lib/push'
+import { disablePush, enablePush, isPushEnabled, pushSupport } from '../lib/push'
 import { useToast } from './Toast'
 
 type Status = { state: 'idle' } | { state: 'checking' } | { state: 'ok'; config: ServerConfig } | { state: 'error'; message: string }
@@ -95,15 +95,6 @@ export function AssistantSettings() {
               </button>
             )}
           </div>
-        )}
-        {pushOn && config?.push && (
-          <button
-            className="group__action"
-            disabled={busy}
-            onClick={() => run(() => syncReminders({ test: true }), 'Notification de test envoyée')}
-          >
-            <Send size={18} /> Envoyer une notification de test
-          </button>
         )}
       </div>
       <p className="footnote">

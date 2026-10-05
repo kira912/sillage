@@ -323,7 +323,7 @@ function SpaceDetails({ space }: { space: SpaceState }) {
             'Pas encore synchronisé'
           )}
         </span>
-        <button className="btn btn--small" disabled={syncing} onClick={syncNow}>Synchroniser</button>
+        {space.lastError && <button className="btn btn--small" disabled={syncing} onClick={syncNow}>Réessayer</button>}
       </div>
 
       <button className="group__action group__action--danger" onClick={leave}>

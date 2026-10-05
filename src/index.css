@@ -357,6 +357,10 @@ main { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 96px
 .paste .footnote { margin: 0; padding: 0; }
 .toggle { display: flex; align-items: center; gap: 10px; font-size: 0.9rem; }
 .toggle input { accent-color: var(--accent); width: 20px; height: 20px; }
+.tips-box > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 4px; margin-bottom: 8px; }
+.tips-box > summary::-webkit-details-marker { display: none; }
+.tips-box__chevron { transition: transform 0.2s; }
+.tips-box[open] .tips-box__chevron { transform: rotate(90deg); }
 .tips { margin: 0; padding: 0 4px 0 22px; color: var(--muted); font-size: 0.9rem; display: flex; flex-direction: column; gap: 8px; }
 
 /* ---------- Bandeau d'installation ---------- */
