@@ -88,7 +88,10 @@ export const POST = guard(async (request: Request) => {
   } catch (e) {
     if (e instanceof Anthropic.RateLimitError) return error(429, 'Trop de demandes, réessayez dans un instant.')
     if (e instanceof Anthropic.AuthenticationError) return error(503, 'Clé API Anthropic invalide côté serveur.')
-    if (e instanceof Anthropic.APIError) return error(502, `Erreur du service IA (${e.status ?? '?'})`)
+    if (e instanceof Anthropic.APIError) {
+      console.error('[sillage] parse', e.status, e.message)
+      return error(502, `Erreur du service IA (${e.status ?? '?'})`)
+    }
     if (e instanceof SyntaxError) return error(502, 'Réponse illisible du modèle')
     console.error('[sillage] parse', e)
     return error(500, 'Erreur interne')
