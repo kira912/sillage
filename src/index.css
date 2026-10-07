@@ -524,3 +524,7 @@ main { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 96px
 .shop-card__preview { font-size: 0.85rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shop-card__preview::first-letter { text-transform: uppercase; }
 .card__time--late { color: var(--warn); }
+.card__more {
+  display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; padding: 6px 0; border: 0; background: none;
+  color: var(--accent); font-size: 0.85rem; font-weight: 600;
+}

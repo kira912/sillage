@@ -1,5 +1,5 @@
-import { CalendarDays, ListChecks, MapPin, Pin, Repeat, Users } from 'lucide-react'
-import { useMemo } from 'react'
+import { CalendarDays, ChevronDown, ChevronUp, ListChecks, MapPin, Pin, Repeat, Users } from 'lucide-react'
+import { useMemo, useState } from 'react'
 import { CHECK_RE, checklistProgress, toggleLine } from '../lib/checklist'
 import { db, restoreNote, toggleDone, trashNote } from '../lib/db'
 import { describeRecurrence, fmt, fromKey, nextOccurrence, relativeDay } from '../lib/dates'
@@ -21,7 +21,10 @@ interface Props {
 
 export function NoteCard({ note, onOpen, dayKey, showDate }: Props) {
   const lines = note.body.split('\n')
-  const preview = lines.slice(0, PREVIEW_LINES)
+  // Une longue liste se déplie dans la carte : on peut cocher jusqu'au bout sans ouvrir l'éditeur.
+  const [expanded, setExpanded] = useState(false)
+  const hidden = lines.length - PREVIEW_LINES
+  const preview = expanded ? lines : lines.slice(0, PREVIEW_LINES)
   const done = dayKey ? note.doneDates.includes(dayKey) : false
   const progress = checklistProgress(note.body)
   const today = useToday()
@@ -80,7 +83,19 @@ export function NoteCard({ note, onOpen, dayKey, showDate }: Props) {
                 </label>
               )
             })}
-            {lines.length > PREVIEW_LINES && <div className="muted">…</div>}
+            {hidden > 0 && (
+              <button
+                className="card__more"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setExpanded(!expanded)
+                }}
+                aria-expanded={expanded}
+              >
+                {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                {expanded ? 'Réduire' : `Afficher ${hidden} ligne${hidden > 1 ? 's' : ''} de plus`}
+              </button>
+            )}
           </div>
         )}
 
