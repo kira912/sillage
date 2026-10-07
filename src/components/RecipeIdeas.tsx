@@ -1,15 +1,15 @@
 import { BookmarkPlus, Check, ChefHat, ChevronDown, ChevronUp, Clock, Plus, RefreshCw, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { ApiError, getAccessCode } from '../lib/api'
-import { fetchIdeas, keepRecipe, listKeyOf, savedIdeas, savedWish, type Recipe } from '../lib/recipes'
-import { addToList, itemKey } from '../lib/shopping'
+import { fetchIdeas, keepRecipe, listKeyOf, onList, savedIdeas, savedWish, type Ingredient, type Recipe } from '../lib/recipes'
+import { addToList, itemKey, type Item } from '../lib/shopping'
 import { useToast } from './Toast'
 
 /**
  * Idées de recettes à partir des articles à acheter : faisables avec la liste, ou presque (1 à 3 ingrédients
  * manquants, ajoutables en un toucher). L'IA n'est appelée que sur demande.
  */
-export function RecipeIdeas({ items, onOpenSettings }: { items: string[]; onOpenSettings: () => void }) {
+export function RecipeIdeas({ items, onOpenSettings }: { items: Item[]; onOpenSettings: () => void }) {
   const [ideas, setIdeas] = useState(savedIdeas)
   const [wish, setWish] = useState(savedWish)
   const [loading, setLoading] = useState(false)
@@ -17,10 +17,11 @@ export function RecipeIdeas({ items, onOpenSettings }: { items: string[]; onOpen
   const request = useRef<AbortController | null>(null)
   useEffect(() => () => request.current?.abort(), [])
 
-  const inList = new Set(items.map(itemKey))
+  const names = items.map((i) => i.name)
+  const listKeys = names.map(itemKey)
   // Les ingrédients ajoutés depuis une recette proposée ne rendent pas les idées obsolètes.
-  const suggested = new Set(ideas?.recipes.flatMap((r) => r.missing.map(itemKey)))
-  const changed = !!ideas && ideas.listKey !== listKeyOf(items.filter((i) => !suggested.has(itemKey(i))))
+  const suggested = new Set(ideas?.recipes.flatMap((r) => missingOf(r).map((i) => itemKey(i.name))))
+  const changed = !!ideas && ideas.listKey !== listKeyOf(names.filter((n) => !suggested.has(itemKey(n))))
 
   async function search() {
     setLoading(true)
@@ -51,9 +52,9 @@ export function RecipeIdeas({ items, onOpenSettings }: { items: string[]; onOpen
   }
 
   // Une recette dont les ingrédients manquants ont tous été ajoutés à la liste devient faisable.
-  const stillMissing = (r: Recipe) => r.missing.filter((m) => !inList.has(itemKey(m)))
-  const ready = ideas?.recipes.filter((r) => r.missing.length === 0) ?? []
-  const almost = ideas?.recipes.filter((r) => r.missing.length > 0) ?? []
+  const stillMissing = (r: Recipe) => missingOf(r).filter((i) => !onList(i.name, listKeys))
+  const ready = ideas?.recipes.filter((r) => missingOf(r).length === 0) ?? []
+  const almost = ideas?.recipes.filter((r) => missingOf(r).length > 0) ?? []
 
   return (
     <div className="section">
@@ -98,14 +99,18 @@ export function RecipeIdeas({ items, onOpenSettings }: { items: string[]; onOpen
   )
 }
 
-function RecipeCard({ recipe, missing }: { recipe: Recipe; missing: string[] }) {
+const missingOf = (r: Recipe) => r.ingredients.filter((i) => i.source === 'missing')
+
+const SOURCE_LABELS: Record<Ingredient['source'], string> = { list: 'Dans la liste', pantry: 'Placard', missing: 'À acheter' }
+
+function RecipeCard({ recipe, missing }: { recipe: Recipe; missing: Ingredient[] }) {
   const [open, setOpen] = useState(false)
   const [kept, setKept] = useState(false)
   const toast = useToast()
-  const added = recipe.missing.length > 0 && missing.length === 0
+  const added = missingOf(recipe).length > 0 && missing.length === 0
 
   async function addMissing() {
-    await addToList(missing.join(','))
+    await addToList(missing.map((i) => i.name).join(','))
     toast(`${missing.length} ingrédient${missing.length > 1 ? 's' : ''} ajouté${missing.length > 1 ? 's' : ''} à la liste`)
   }
 
@@ -121,7 +126,7 @@ function RecipeCard({ recipe, missing }: { recipe: Recipe; missing: string[] }) 
         <span className="recipe__icon"><ChefHat size={18} /></span>
         <span className="card__titles">
           <span className="card__title">{recipe.title}</span>
-          <span className="recipe__uses">{recipe.uses.join(', ')}</span>
+          {recipe.pitch && <span className="recipe__pitch">{recipe.pitch}</span>}
         </span>
         {recipe.minutes > 0 && (
           <span className="badge"><Clock size={13} /> {recipe.minutes} min</span>
@@ -129,13 +134,23 @@ function RecipeCard({ recipe, missing }: { recipe: Recipe; missing: string[] }) 
         {open ? <ChevronUp size={18} className="muted" /> : <ChevronDown size={18} className="muted" />}
       </button>
 
-      {missing.length > 0 && <p className="recipe__missing">Il manque : {missing.join(', ')}</p>}
+      {missing.length > 0 && <p className="recipe__missing">Il manque : {missing.map((i) => i.name).join(', ')}</p>}
       {added && <p className="recipe__missing recipe__missing--ok"><Check size={14} className="inline-icon" /> Ingrédients ajoutés à la liste</p>}
 
       {open && (
-        <ol className="recipe__steps">
-          {recipe.steps.map((s, i) => <li key={i}>{s}</li>)}
-        </ol>
+        <>
+          <ul className="recipe__ingredients">
+            {recipe.ingredients.map((i) => (
+              <li key={i.name} className={`recipe__ingredient recipe__ingredient--${i.source}`}>
+                <span>{i.quantity ? `${i.quantity} ` : ''}{i.name}</span>
+                <small>{SOURCE_LABELS[i.source]}</small>
+              </li>
+            ))}
+          </ul>
+          <ol className="recipe__steps">
+            {recipe.steps.map((s, i) => <li key={i}>{s}</li>)}
+          </ol>
+        </>
       )}
 
       <div className="recipe__actions">

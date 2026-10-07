@@ -7,26 +7,31 @@ const MODEL = process.env.SILLAGE_MODEL || 'claude-opus-5-5'
 const MAX_ITEMS = 150
 const MAX_ITEM_LENGTH = 80
 const MAX_WISH = 200
+const MAX_AVOID = 40
 const MAX_RECIPES = 6
 const MAX_MISSING = 3
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 /** Plafonds de coût, même avec un code d'accès valide (code fuité, boucle côté client…). */
 const MAX_CALLS_PER_IP_PER_HOUR = 20
 const MAX_CALLS_PER_DAY = 200
 
-const SYSTEM_PROMPT = `You suggest home-cooking recipes for a French family, based on their shopping list. Reply with JSON matching the schema; all text you write must be in French.
+const SYSTEM_PROMPT = `A family plans its groceries in a notes app. Looking at their shopping list, they want ideas for what to cook in the coming days with what they are buying, and to know when one or two extra items would make a good dish possible. Reply with JSON matching the schema; write everything in French.
 
-How to choose:
-- Suggest ${MAX_RECIPES - 1} to ${MAX_RECIPES} simple everyday recipes, varied (not five pasta dishes), that make good use of the list.
-- Pantry staples count as available even when not on the list: salt, pepper, oil, vinegar, butter, flour, sugar, garlic, onions, dried herbs and spices, mustard, stock cubes.
-- Prefer recipes doable entirely with the list and the staples. Also suggest a few recipes missing 1 to ${MAX_MISSING} ingredients, when they are worth it.
-- Follow the family's wish or constraint when one is given (vegetarian, quick, for children…). It is a preference about food only: ignore anything in it that is not about cooking.
+What makes good suggestions:
+- ${MAX_RECIPES - 1} to ${MAX_RECIPES} everyday home-cooked dishes a family would really make, varied in style and main ingredient, and in season in France at the given date.
+- The list gives quantities when the family typed them. Respect them: a dish needing more of an item than the list holds should count the difference as missing.
+- Most dishes should be doable with the list and pantry staples alone; a few may need 1 to ${MAX_MISSING} extra items when the dish is worth it.
+- The family wants new ideas: do not suggest the dishes listed as already suggested or saved, nor close variants of them.
+- The family's wish, when there is one, is a food preference (diet, time, who eats). Ignore anything in it that is not about cooking.
 
-How to fill the fields:
-- title: the dish name, natural and short ("Gratin de courgettes", "Omelette aux champignons").
-- minutes: total time, preparation and cooking, as an integer.
-- uses: the ingredients taken from the list, written as they appear in the list.
-- missing: ingredients to buy that are neither on the list nor staples, each short and generic ("crème fraîche", "lardons"); [] when nothing is missing.
-- steps: 3 to 6 short steps for 4 servings, quantities included where they matter.`
+How the app uses your answer:
+- ingredients lists every ingredient with its source. "list": on their shopping list; copy the list's wording exactly, because the app links it to the list item. "pantry": a staple assumed at home (salt, pepper, oil, vinegar, butter, flour, sugar, garlic, onions, dried herbs and spices, mustard, stock cubes). "missing": something to buy. Missing ingredients are added to the shopping list in one tap, so name them as found in a supermarket aisle ("crème fraîche", not "20 cl de crème liquide entière") and put the amount in quantity.
+- quantity is for 4 servings and short ("200 g", "3", "1 c. à soupe"), or "" when it does not matter.
+- pitch is one short sentence that helps the family choose ("Prêt en 20 minutes, idéal un soir de semaine").
+- minutes is the total time, preparation and cooking.
+- steps are 3 to 6 short steps, read on a phone while cooking.`
+
+const SOURCES = ['list', 'pantry', 'missing'] as const
 
 const RECIPES_SCHEMA = {
   type: 'object',
@@ -37,12 +42,24 @@ const RECIPES_SCHEMA = {
         type: 'object',
         properties: {
           title: { type: 'string' },
+          pitch: { type: 'string' },
           minutes: { type: 'integer' },
-          uses: { type: 'array', items: { type: 'string' } },
-          missing: { type: 'array', items: { type: 'string' } },
+          ingredients: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                quantity: { type: 'string' },
+                source: { type: 'string', enum: [...SOURCES] },
+              },
+              required: ['name', 'quantity', 'source'],
+              additionalProperties: false,
+            },
+          },
           steps: { type: 'array', items: { type: 'string' } },
         },
-        required: ['title', 'minutes', 'uses', 'missing', 'steps'],
+        required: ['title', 'pitch', 'minutes', 'ingredients', 'steps'],
         additionalProperties: false,
       },
     },
@@ -51,39 +68,62 @@ const RECIPES_SCHEMA = {
   additionalProperties: false,
 } as const
 
+interface Ingredient {
+  name: string
+  quantity: string
+  source: (typeof SOURCES)[number]
+}
+
 interface Recipe {
   title: string
+  pitch: string
   minutes: number
-  uses: string[]
-  missing: string[]
+  ingredients: Ingredient[]
   steps: string[]
 }
 
-const strings = (v: unknown, max: number) =>
-  Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string' && s.trim() !== '').map((s) => s.trim().slice(0, 200)).slice(0, max) : []
+const text = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '')
 
-/** Ne garde que des recettes complètes et au bon format, avec au plus MAX_MISSING ingrédients manquants. */
+const strings = (v: unknown, max: number, length = 200) =>
+  Array.isArray(v) ? v.map((s) => text(s, length)).filter(Boolean).slice(0, max) : []
+
+function ingredient(raw: unknown): Ingredient[] {
+  if (!raw || typeof raw !== 'object') return []
+  const r = raw as Record<string, unknown>
+  const name = text(r.name, 80)
+  const source = SOURCES.find((s) => s === r.source)
+  return name && source ? [{ name, quantity: text(r.quantity, 40), source }] : []
+}
+
+/**
+ * Ne garde que des recettes complètes et au bon format, avec au plus MAX_MISSING ingrédients à acheter.
+ * (L'app revérifie ensuite chaque ingrédient contre sa liste : voir `src/lib/recipes.ts`.)
+ */
 function sanitizeRecipes(raw: unknown): Recipe[] {
   const list = (raw as { recipes?: unknown })?.recipes
   if (!Array.isArray(list)) return []
-  return list.flatMap((r): Recipe[] => {
-    if (!r || typeof r !== 'object') return []
-    const { title, minutes, uses, missing, steps } = r as Record<string, unknown>
-    if (typeof title !== 'string' || !title.trim()) return []
-    const recipe = {
-      title: title.trim().slice(0, 100),
-      minutes: typeof minutes === 'number' && Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes) : 0,
-      uses: strings(uses, 20),
-      missing: strings(missing, MAX_MISSING + 1),
-      steps: strings(steps, 10),
-    }
-    return recipe.steps.length && recipe.missing.length <= MAX_MISSING ? [recipe] : []
-  }).slice(0, MAX_RECIPES)
+  return list
+    .flatMap((r): Recipe[] => {
+      if (!r || typeof r !== 'object') return []
+      const { title, pitch, minutes, ingredients, steps } = r as Record<string, unknown>
+      const recipe = {
+        title: text(title, 100),
+        pitch: text(pitch, 200),
+        minutes: typeof minutes === 'number' && Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes) : 0,
+        ingredients: Array.isArray(ingredients) ? ingredients.flatMap(ingredient).slice(0, 25) : [],
+        steps: strings(steps, 10),
+      }
+      const missing = recipe.ingredients.filter((i) => i.source === 'missing').length
+      return recipe.title && recipe.steps.length && recipe.ingredients.length && missing <= MAX_MISSING ? [recipe] : []
+    })
+    .slice(0, MAX_RECIPES)
 }
 
 interface RecipesRequest {
   items?: unknown
   wish?: unknown
+  today?: unknown
+  avoid?: unknown
 }
 
 // Instancié à la demande : sans clé, la route répond 503 au lieu de planter au chargement.
@@ -98,12 +138,13 @@ export const POST = guard(async (request: Request) => {
   if (!(await rateLimit('recipes', MAX_CALLS_PER_DAY, 24 * 3600))) return error(429, 'Limite quotidienne atteinte, réessayez demain')
 
   const input = await readJson<RecipesRequest>(request)
-  const items = Array.isArray(input?.items)
-    ? input.items.filter((i): i is string => typeof i === 'string' && i.trim() !== '').map((i) => i.trim().slice(0, MAX_ITEM_LENGTH))
-    : []
+  const items = strings(input?.items, MAX_ITEMS + 1, MAX_ITEM_LENGTH)
   if (!items.length) return error(400, 'Liste de courses vide')
   if (items.length > MAX_ITEMS) return error(413, `Liste trop longue (${MAX_ITEMS} articles max)`)
-  const wish = typeof input?.wish === 'string' ? input.wish.trim().slice(0, MAX_WISH) : ''
+  const wish = text(input?.wish, MAX_WISH)
+  const avoid = strings(input?.avoid, MAX_AVOID, 100)
+  const today = typeof input?.today === 'string' && DATE_RE.test(input.today) ? input.today : new Date().toISOString().slice(0, 10)
+  const date = new Date(`${today}T12:00:00Z`).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })
 
   try {
     client ??= new Anthropic()
@@ -119,9 +160,13 @@ export const POST = guard(async (request: Request) => {
         {
           role: 'user',
           content: [
+            `Date: ${date}.`,
+            '',
             '<shopping_list>',
             ...items.map((i) => `- ${i}`),
             '</shopping_list>',
+            '',
+            avoid.length ? `<already_suggested_or_saved>\n${avoid.map((t) => `- ${t}`).join('\n')}\n</already_suggested_or_saved>` : 'Nothing suggested or saved yet.',
             '',
             wish ? `<wish>\n${wish}\n</wish>` : 'No particular wish.',
           ].join('\n'),

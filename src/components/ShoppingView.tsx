@@ -143,7 +143,7 @@ export function ShoppingView({ onOpenSettings }: { onOpenSettings: () => void })
         </div>
       )}
 
-      {toBuy.length >= 2 && <RecipeIdeas items={toBuy.map((i) => i.name)} onOpenSettings={onOpenSettings} />}
+      {toBuy.length >= 2 && <RecipeIdeas items={toBuy} onOpenSettings={onOpenSettings} />}
 
       {note && (
         <div className="section">
