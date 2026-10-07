@@ -2,9 +2,10 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { Bell, CalendarDays, ChevronLeft, ListChecks, Mic, Repeat, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { ApiError, api, getAccessCode } from '../lib/api'
-import { checklistProgress } from '../lib/checklist'
+import { CHECK_RE, checklistProgress } from '../lib/checklist'
 import { activeNotes, db, newNote } from '../lib/db'
 import { describeRecurrence, describeReminder, fromKey, relativeDay, toKey } from '../lib/dates'
+import { addToList, updateList } from '../lib/shopping'
 import { shouldAutoShare } from '../lib/space'
 import type { Note } from '../lib/types'
 import { useToast } from './Toast'
@@ -16,6 +17,12 @@ const EXAMPLES = [
   'Tous les mardis sortir les poubelles à 20h',
   'Courses : lait, pain, tomates, lessive',
 ]
+
+/** Brouillon « Courses : lait, pain… » : ses articles vont dans la liste de courses plutôt que dans une nouvelle note. */
+function isShoppingDraft(d: Draft): boolean {
+  const title = d.title.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '')
+  return /^(liste de )?courses?\b/.test(title) && checklistProgress(d.body).total > 0 && !d.recurrence
+}
 
 interface Props {
   onClose: () => void
@@ -59,9 +66,23 @@ export function QuickCapture({ onClose, onOpenSettings }: Props) {
 
   async function addAll() {
     const chosen = drafts!.filter((_, i) => selected[i])
+    const shopping = chosen.filter(isShoppingDraft)
+    const others = chosen.filter((d) => !isShoppingDraft(d))
     const now = Date.now()
-    await db.notes.bulkAdd(chosen.map((d, i) => newNote({ ...d, shared: shouldAutoShare(d.tags) || undefined, createdAt: now, updatedAt: now + i })))
-    toast(chosen.length > 1 ? `${chosen.length} notes ajoutées` : 'Note ajoutée')
+    await db.notes.bulkAdd(others.map((d, i) => newNote({ ...d, shared: shouldAutoShare(d.tags) || undefined, createdAt: now, updatedAt: now + i })))
+    // Une liste de courses dictée rejoint la liste de l'onglet Courses (avec sa date, si elle en a une).
+    let items = 0
+    for (const d of shopping) {
+      const lines = d.body.split('\n').flatMap((l) => l.match(CHECK_RE)?.[3] ?? [])
+      items += lines.length
+      await addToList(lines.join(','))
+      if (d.date) await updateList((n) => (n.date ? {} : { date: d.date, time: d.time, reminder: d.reminder, doneDates: [] }))
+    }
+    const parts = [
+      others.length && (others.length > 1 ? `${others.length} notes ajoutées` : 'Note ajoutée'),
+      shopping.length && `${items} article${items > 1 ? 's' : ''} ajouté${items > 1 ? 's' : ''} aux courses`,
+    ].filter(Boolean)
+    toast(parts.join(' · '))
     onClose()
   }
 

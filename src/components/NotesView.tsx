@@ -2,12 +2,14 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { Search, Users, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { activeNotes } from '../lib/db'
+import { isShoppingList } from '../lib/shopping'
 import { useSpace } from '../lib/space'
 import { NoteCard } from './NoteCard'
 import { Section } from './Section'
 
 export function NotesView({ onOpen }: { onOpen: (id: string) => void }) {
-  const notes = useLiveQuery(activeNotes, [])
+  // La liste de courses a son propre onglet.
+  const notes = useLiveQuery(async () => (await activeNotes()).filter((n) => !isShoppingList(n)), [])
   const [query, setQuery] = useState('')
   const [tag, setTag] = useState<string | null>(null)
   const [sharedOnly, setSharedOnly] = useState(false)

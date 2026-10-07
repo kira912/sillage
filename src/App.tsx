@@ -1,4 +1,4 @@
-import { CalendarDays, NotebookPen, Plus, Settings, Sparkles, Sun } from 'lucide-react'
+import { CalendarDays, NotebookPen, Plus, Settings, ShoppingCart, Sparkles, Sun } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AgendaView } from './components/AgendaView'
 import { InstallHint, InstallSheet } from './components/InstallHint'
@@ -6,15 +6,17 @@ import { NoteEditor } from './components/NoteEditor'
 import { NotesView } from './components/NotesView'
 import { QuickCapture } from './components/QuickCapture'
 import { SettingsView } from './components/SettingsView'
+import { ShoppingView } from './components/ShoppingView'
 import { PasteInviteBanner } from './components/SpaceSettings'
 import { TodayView } from './components/TodayView'
 import { onNotesChanged, purgeOldTrash } from './lib/db'
 import { toKey } from './lib/dates'
 import { isPushEnabled, syncReminders } from './lib/push'
+import { SHOPPING_ID } from './lib/shopping'
 import { getSpace, pollDelay, syncSpace } from './lib/space'
 import type { Note } from './lib/types'
 
-type Tab = 'today' | 'notes' | 'agenda' | 'settings'
+type Tab = 'today' | 'notes' | 'agenda' | 'shopping' | 'settings'
 type EditorState = { id: string | null; defaults?: Partial<Note> } | null
 type Overlay = { kind: 'editor'; state: NonNullable<EditorState> } | { kind: 'capture' } | null
 
@@ -22,10 +24,14 @@ const TABS = [
   { id: 'today', label: 'Aujourd’hui', icon: Sun },
   { id: 'notes', label: 'Notes', icon: NotebookPen },
   { id: 'agenda', label: 'Agenda', icon: CalendarDays },
+  { id: 'shopping', label: 'Courses', icon: ShoppingCart },
   { id: 'settings', label: 'Réglages', icon: Settings },
 ] as const
 
-const TITLES: Record<Tab, string> = { today: 'Aujourd’hui', notes: 'Notes', agenda: 'Agenda', settings: 'Réglages' }
+const TITLES: Record<Tab, string> = { today: 'Aujourd’hui', notes: 'Notes', agenda: 'Agenda', shopping: 'Courses', settings: 'Réglages' }
+
+/** Onglets sans saisie rapide ni bouton « nouvelle note ». */
+const NO_CREATE: Tab[] = ['shopping', 'settings']
 
 export default function App() {
   // Un lien d'invitation (#rejoindre=…) ouvre directement les réglages de partage.
@@ -61,7 +67,8 @@ export default function App() {
     history.pushState({ overlay: next.kind }, '')
   }
 
-  const open = (id: string) => openOverlay({ kind: 'editor', state: { id } })
+  // La liste de courses (affichée dans l'agenda quand elle a une date) s'ouvre dans son onglet.
+  const open = (id: string) => (id === SHOPPING_ID ? switchTab('shopping') : openOverlay({ kind: 'editor', state: { id } }))
   const create = () =>
     openOverlay({ kind: 'editor', state: { id: null, defaults: tab === 'agenda' ? { date: toKey(selectedDay) } : {} } })
   const capture = () => openOverlay({ kind: 'capture' })
@@ -78,7 +85,7 @@ export default function App() {
       <div className="app" style={overlay ? { display: 'none' } : undefined}>
         <header className="topbar">
           <h1>{TITLES[tab]}</h1>
-          {tab !== 'settings' && (
+          {!NO_CREATE.includes(tab) && (
             <button className="icon-btn topbar__action" onClick={capture} aria-label="Saisie rapide">
               <Sparkles size={22} />
             </button>
@@ -87,12 +94,13 @@ export default function App() {
         {tab === 'today' && <InstallHint />}
         {tab === 'today' && <PasteInviteBanner onFound={() => switchTab('settings')} />}
         <main>
-          {tab === 'today' && <TodayView onOpen={open} onCreate={create} onCapture={capture} />}
+          {tab === 'today' && <TodayView onOpen={open} onCreate={create} onCapture={capture} onOpenShopping={() => switchTab('shopping')} />}
           {tab === 'notes' && <NotesView onOpen={open} />}
           {tab === 'agenda' && <AgendaView selected={selectedDay} onSelect={setSelectedDay} onOpen={open} />}
+          {tab === 'shopping' && <ShoppingView />}
           {tab === 'settings' && <SettingsView />}
         </main>
-        {tab !== 'settings' && (
+        {!NO_CREATE.includes(tab) && (
           <button className="fab" onClick={create} aria-label="Nouvelle note">
             <Plus size={28} strokeWidth={2.5} />
           </button>

@@ -133,7 +133,7 @@ export function SettingsView() {
         </summary>
         <ul className="tips">
           <li>Glissez une note vers la gauche pour la supprimer (un glissement long la supprime directement).</li>
-          <li>Une liste de courses qui revient chaque semaine : donnez-lui une répétition, puis « Tout décocher » après les courses.</li>
+          <li>Onglet Courses : tapez « lait, 2 baguettes » pour ajouter plusieurs articles ; la liste est rangée par rayon et partagée avec votre espace.</li>
           <li>Dans l’agenda, glissez sur le calendrier pour changer de mois.</li>
           <li>Les notes #courses ou #famille sont partagées automatiquement avec votre espace.</li>
         </ul>

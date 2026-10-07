@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { api } from './api'
 import { db, newId, newNote } from './db'
 import { mergeNotes } from './merge'
+import { SHOPPING_ID, mergeLists } from './shopping'
 import { sanitizeNote } from './note-schema'
 import { SECRET_RE, decryptJson, encryptJson, generateSecret, keyFor, spaceIdFor } from './space-crypto'
 import type { Note, SharedNote } from './types'
@@ -432,7 +433,11 @@ async function applyEntry(key: CryptoKey, e: Entry, memberName: string): Promise
   let next = remoteContent
   let push = false
   const localChanged = !!local?.shared && fingerprint(local) !== (meta?.fp ?? fingerprint(remoteContent))
-  if (local && localChanged) {
+  if (local && !meta && e.id === SHOPPING_ID && !local.deletedAt) {
+    // Liste de courses faite ici avant de connaître celle de l'espace : on réunit les articles des deux.
+    next = { ...remoteContent, body: mergeLists(local.body, remoteContent.body) }
+    push = fingerprint(next) !== fingerprint(remoteContent)
+  } else if (local && localChanged) {
     if (meta?.base) {
       const merged = mergeNotes(meta.base, strip(local), remoteContent)
       next = merged.note

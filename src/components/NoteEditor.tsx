@@ -496,7 +496,7 @@ export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
   )
 }
 
-function Row({ icon, label, children, onClear }: { icon: ReactNode; label: string; children: ReactNode; onClear?: () => void }) {
+export function Row({ icon, label, children, onClear }: { icon: ReactNode; label: string; children: ReactNode; onClear?: () => void }) {
   return (
     <div className="row">
       <span className="row__icon">{icon}</span>
@@ -512,7 +512,7 @@ function Row({ icon, label, children, onClear }: { icon: ReactNode; label: strin
 }
 
 /** Sélecteur natif (roue de l'iPhone) caché sous un libellé lisible. */
-function Picker({
+export function Picker({
   type,
   value,
   display,
@@ -548,7 +548,7 @@ function Picker({
   )
 }
 
-function SelectPicker({
+export function SelectPicker({
   value,
   display,
   options,
