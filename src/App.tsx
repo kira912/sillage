@@ -6,6 +6,7 @@ import { NoteEditor } from './components/NoteEditor'
 import { NotesView } from './components/NotesView'
 import { QuickCapture } from './components/QuickCapture'
 import { SettingsView } from './components/SettingsView'
+import { PasteInviteBanner } from './components/SpaceSettings'
 import { TodayView } from './components/TodayView'
 import { onNotesChanged, purgeOldTrash } from './lib/db'
 import { toKey } from './lib/dates'
@@ -84,6 +85,7 @@ export default function App() {
           )}
         </header>
         {tab === 'today' && <InstallHint />}
+        {tab === 'today' && <PasteInviteBanner onFound={() => switchTab('settings')} />}
         <main>
           {tab === 'today' && <TodayView onOpen={open} onCreate={create} onCapture={capture} />}
           {tab === 'notes' && <NotesView onOpen={open} />}

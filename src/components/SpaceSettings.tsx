@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { Copy, LogOut, RefreshCw, Share2, UserPlus, Users, X } from 'lucide-react'
+import { ClipboardPaste, Copy, LogOut, RefreshCw, Share2, UserPlus, Users, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { db } from '../lib/db'
 import { fmt } from '../lib/dates'
@@ -9,6 +9,7 @@ import {
   inviteLink,
   joinSpace,
   leaveSpace,
+  parseInvite,
   syncSpace,
   updateSpaceMeta,
   useSpace,
@@ -20,6 +21,69 @@ import { useToast } from './Toast'
 /** Code reçu via un lien `#rejoindre=…` (ouvert dans le navigateur). */
 function inviteFromHash(): string {
   return location.hash.startsWith('#rejoindre=') ? location.hash.slice(1) : ''
+}
+
+/** Lit une invitation dans le presse-papiers (iOS affiche sa bulle « Coller » : appeler depuis un geste). */
+async function inviteFromClipboard(): Promise<string | null> {
+  try {
+    return parseInvite(await navigator.clipboard.readText())
+  } catch {
+    return null
+  }
+}
+
+const PASTE_BANNER_KEY = 'sillage:paste-invite-dismissed'
+
+/**
+ * Sur iPhone, un lien d'invitation s'ouvre toujours dans Safari, jamais dans l'app installée (dont les données
+ * sont séparées). L'encart de Safari fait copier l'invitation ; ce bandeau, dans l'app, la récupère.
+ */
+export function PasteInviteBanner({ onFound }: { onFound: () => void }) {
+  const space = useSpace()
+  const toast = useToast()
+  const [dismissed, setDismissed] = useState(() => {
+    try {
+      return localStorage.getItem(PASTE_BANNER_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+
+  if (space || dismissed || !isStandalone()) return null
+
+  function dismiss() {
+    setDismissed(true)
+    try {
+      localStorage.setItem(PASTE_BANNER_KEY, '1')
+    } catch {
+      /* le bandeau reviendra, sans gravité */
+    }
+  }
+
+  async function paste() {
+    const secret = await inviteFromClipboard()
+    if (!secret) {
+      toast('Aucune invitation copiée : copiez d’abord le lien reçu')
+      return
+    }
+    history.replaceState(null, '', `#rejoindre=${encodeURIComponent(secret)}`)
+    onFound()
+  }
+
+  return (
+    <div className="install">
+      <div className="install__text">
+        <strong>Invitation reçue ?</strong>
+        <span>Copiez le lien reçu, puis touchez Coller pour rejoindre l’espace partagé.</span>
+      </div>
+      <button className="btn btn--primary" onClick={paste}>
+        <ClipboardPaste size={16} /> Coller
+      </button>
+      <button className="icon-btn" onClick={dismiss} aria-label="Masquer">
+        <X size={18} />
+      </button>
+    </div>
+  )
 }
 
 export function SpaceSettings() {
@@ -46,6 +110,7 @@ export function InviteCard() {
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
+  const [joinInBrowser, setJoinInBrowser] = useState(false)
   const toast = useToast()
   // Sur iPhone, le lien s'ouvre dans Safari, dont les données sont séparées de celles de l'app installée.
   const inBrowserOnIos = isIos() && !isStandalone()
@@ -71,14 +136,28 @@ export function InviteCard() {
     }
   }
 
-  async function copyCode() {
+  async function copyInvite() {
     try {
-      await navigator.clipboard.writeText(decodeURIComponent(invite.replace(/^rejoindre=/, '')))
-      toast('Code copié')
+      await navigator.clipboard.writeText(`${location.origin}/#${invite}`)
+      toast('Invitation copiée')
     } catch {
       toast('Copie impossible')
     }
   }
+
+  const joinForm = (
+    <>
+      <label className="form__field">
+        Votre prénom
+        <input className="field" value={name} placeholder="Visible par les autres membres" onChange={(e) => setName(e.target.value)} />
+      </label>
+      {errorMsg && <p className="capture__error">{errorMsg}</p>}
+      <button className="btn btn--primary invite-card__submit" disabled={!name.trim() || busy} onClick={join}>
+        {busy && <span className="spinner" />}
+        Rejoindre l’espace{inBrowserOnIos ? ' dans Safari' : ''}
+      </button>
+    </>
+  )
 
   return (
     <div className="invite-card">
@@ -90,26 +169,34 @@ export function InviteCard() {
           Ce téléphone est déjà dans l’espace « {space.name} ». Quittez-le (plus bas, section Partage) pour en rejoindre
           un autre.
         </p>
+      ) : inBrowserOnIos ? (
+        <>
+          <p className="invite-card__text">
+            Sur iPhone, les liens s’ouvrent dans Safari et non dans l’app installée. Pour rejoindre l’espace dans l’app :
+          </p>
+          <ol className="invite-card__steps">
+            <li>
+              <button className="btn btn--primary btn--small" onClick={copyInvite}><Copy size={14} /> Copier l’invitation</button>
+            </li>
+            <li>Ouvrez Sillage depuis l’écran d’accueil</li>
+            <li>Touchez <strong>Coller</strong> dans le bandeau « Invitation reçue ? »</li>
+          </ol>
+          <p className="invite-card__hint">
+            L’app n’est pas encore installée ? Touchez Partager puis « Sur l’écran d’accueil », ouvrez-la, et suivez
+            les étapes ci-dessus.
+          </p>
+          {joinInBrowser ? (
+            joinForm
+          ) : (
+            <button className="btn btn--small" onClick={() => setJoinInBrowser(true)}>Rejoindre plutôt dans Safari</button>
+          )}
+        </>
       ) : (
         <>
           <p className="invite-card__text">
             Les notes partagées de l’espace apparaîtront dans vos notes, chiffrées : seuls ses membres peuvent les lire.
           </p>
-          {inBrowserOnIos && (
-            <div className="invite-card__hint">
-              <p>Vous utilisez l’app installée sur l’écran d’accueil ? Copiez le code et collez-le dans l’app : Réglages → Partage → Rejoindre un espace.</p>
-              <button className="btn btn--small" onClick={copyCode}><Copy size={14} /> Copier le code</button>
-            </div>
-          )}
-          <label className="form__field">
-            Votre prénom
-            <input className="field" value={name} placeholder="Visible par les autres membres" onChange={(e) => setName(e.target.value)} />
-          </label>
-          {errorMsg && <p className="capture__error">{errorMsg}</p>}
-          <button className="btn btn--primary invite-card__submit" disabled={!name.trim() || busy} onClick={join}>
-            {busy && <span className="spinner" />}
-            Rejoindre l’espace
-          </button>
+          {joinForm}
         </>
       )}
     </div>
@@ -173,6 +260,17 @@ function SpaceSetup() {
               placeholder="Collez le code reçu"
               onChange={(e) => setInvite(e.target.value)}
             />
+            <button
+              type="button"
+              className="btn btn--small form__inline-action"
+              onClick={async () => {
+                const secret = await inviteFromClipboard()
+                if (secret) setInvite(secret)
+                else toast('Aucune invitation dans le presse-papiers')
+              }}
+            >
+              <ClipboardPaste size={14} /> Coller
+            </button>
           </label>
         )}
         <label className="form__field">
@@ -208,7 +306,7 @@ function SpaceDetails({ space }: { space: SpaceState }) {
   }, [])
 
   async function invite() {
-    const text = `Rejoins mon espace Sillage « ${space.name} » : dans l’app, Réglages → Partage → Rejoindre un espace, puis colle ce code :\n${inviteCode(space)}`
+    const text = `Rejoins mon espace Sillage « ${space.name} » : ouvre ce lien. Si tu as l’app sur l’écran d’accueil, copie plutôt le lien, ouvre l’app et touche « Coller ».`
     if (navigator.share) {
       try {
         await navigator.share({ title: 'Invitation Sillage', text, url: inviteLink(space) })
