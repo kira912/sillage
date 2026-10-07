@@ -1,0 +1,153 @@
+import { BookmarkPlus, Check, ChefHat, ChevronDown, ChevronUp, Clock, Plus, RefreshCw, Sparkles } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ApiError, getAccessCode } from '../lib/api'
+import { fetchIdeas, keepRecipe, listKeyOf, savedIdeas, savedWish, type Recipe } from '../lib/recipes'
+import { addToList, itemKey } from '../lib/shopping'
+import { useToast } from './Toast'
+
+/**
+ * Idées de recettes à partir des articles à acheter : faisables avec la liste, ou presque (1 à 3 ingrédients
+ * manquants, ajoutables en un toucher). L'IA n'est appelée que sur demande.
+ */
+export function RecipeIdeas({ items, onOpenSettings }: { items: string[]; onOpenSettings: () => void }) {
+  const [ideas, setIdeas] = useState(savedIdeas)
+  const [wish, setWish] = useState(savedWish)
+  const [loading, setLoading] = useState(false)
+  const [errorMsg, setErrorMsg] = useState('')
+  const request = useRef<AbortController | null>(null)
+  useEffect(() => () => request.current?.abort(), [])
+
+  const inList = new Set(items.map(itemKey))
+  // Les ingrédients ajoutés depuis une recette proposée ne rendent pas les idées obsolètes.
+  const suggested = new Set(ideas?.recipes.flatMap((r) => r.missing.map(itemKey)))
+  const changed = !!ideas && ideas.listKey !== listKeyOf(items.filter((i) => !suggested.has(itemKey(i))))
+
+  async function search() {
+    setLoading(true)
+    setErrorMsg('')
+    request.current = new AbortController()
+    try {
+      setIdeas(await fetchIdeas(items, wish.trim(), request.current.signal))
+    } catch (e) {
+      if (request.current?.signal.aborted) return
+      setErrorMsg(e instanceof ApiError && e.status === 401 ? 'Code d’accès invalide : vérifiez-le dans les réglages.' : (e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (!getAccessCode()) {
+    return (
+      <div className="section">
+        <h2 className="section__title">Idées de recettes</h2>
+        <div className="group">
+          <div className="row-block capture__notice">
+            <p>Les idées de recettes utilisent l’IA via le serveur de Sillage. Entrez d’abord le code d’accès dans les réglages.</p>
+            <button className="btn btn--small" onClick={onOpenSettings}>Ouvrir les réglages</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Une recette dont les ingrédients manquants ont tous été ajoutés à la liste devient faisable.
+  const stillMissing = (r: Recipe) => r.missing.filter((m) => !inList.has(itemKey(m)))
+  const ready = ideas?.recipes.filter((r) => r.missing.length === 0) ?? []
+  const almost = ideas?.recipes.filter((r) => r.missing.length > 0) ?? []
+
+  return (
+    <div className="section">
+      <h2 className="section__title">Idées de recettes</h2>
+      <div className="group">
+        <div className="row-block form">
+          <label className="form__field">
+            Envie ou contrainte (facultatif)
+            <input
+              className="field"
+              value={wish}
+              maxLength={200}
+              placeholder="Végétarien, rapide, pour les enfants…"
+              enterKeyHint="search"
+              onChange={(e) => setWish(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && !loading && void search()}
+            />
+          </label>
+          {errorMsg && <p className="capture__error">{errorMsg}</p>}
+          <button className="btn btn--primary btn--block" disabled={loading} onClick={search}>
+            {loading ? <span className="spinner" /> : ideas ? <RefreshCw size={18} /> : <Sparkles size={18} />}
+            {loading ? 'Recherche…' : ideas ? 'Nouvelles idées' : 'Trouver des recettes'}
+          </button>
+          {changed && !loading && <p className="footnote recipe__stale">La liste a changé depuis ces idées.</p>}
+        </div>
+      </div>
+
+      {ideas && ideas.recipes.length === 0 && <p className="empty">Aucune recette trouvée avec cette liste.</p>}
+      {ready.length > 0 && (
+        <>
+          <h3 className="recipe__group">Avec ce qu’il y a dans la liste</h3>
+          {ready.map((r) => <RecipeCard key={r.title} recipe={r} missing={[]} />)}
+        </>
+      )}
+      {almost.length > 0 && (
+        <>
+          <h3 className="recipe__group">Il manque peu</h3>
+          {almost.map((r) => <RecipeCard key={r.title} recipe={r} missing={stillMissing(r)} />)}
+        </>
+      )}
+    </div>
+  )
+}
+
+function RecipeCard({ recipe, missing }: { recipe: Recipe; missing: string[] }) {
+  const [open, setOpen] = useState(false)
+  const [kept, setKept] = useState(false)
+  const toast = useToast()
+  const added = recipe.missing.length > 0 && missing.length === 0
+
+  async function addMissing() {
+    await addToList(missing.join(','))
+    toast(`${missing.length} ingrédient${missing.length > 1 ? 's' : ''} ajouté${missing.length > 1 ? 's' : ''} à la liste`)
+  }
+
+  async function keep() {
+    await keepRecipe(recipe)
+    setKept(true)
+    toast('Recette enregistrée dans vos notes')
+  }
+
+  return (
+    <article className="card recipe">
+      <button className="recipe__head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span className="recipe__icon"><ChefHat size={18} /></span>
+        <span className="card__titles">
+          <span className="card__title">{recipe.title}</span>
+          <span className="recipe__uses">{recipe.uses.join(', ')}</span>
+        </span>
+        {recipe.minutes > 0 && (
+          <span className="badge"><Clock size={13} /> {recipe.minutes} min</span>
+        )}
+        {open ? <ChevronUp size={18} className="muted" /> : <ChevronDown size={18} className="muted" />}
+      </button>
+
+      {missing.length > 0 && <p className="recipe__missing">Il manque : {missing.join(', ')}</p>}
+      {added && <p className="recipe__missing recipe__missing--ok"><Check size={14} className="inline-icon" /> Ingrédients ajoutés à la liste</p>}
+
+      {open && (
+        <ol className="recipe__steps">
+          {recipe.steps.map((s, i) => <li key={i}>{s}</li>)}
+        </ol>
+      )}
+
+      <div className="recipe__actions">
+        {missing.length > 0 && (
+          <button className="btn btn--small" onClick={addMissing}>
+            <Plus size={14} /> Ajouter {missing.length > 1 ? `les ${missing.length} ingrédients` : 'l’ingrédient'}
+          </button>
+        )}
+        <button className="btn btn--small" disabled={kept} onClick={keep}>
+          {kept ? <Check size={14} /> : <BookmarkPlus size={14} />} {kept ? 'Gardée' : 'Garder la recette'}
+        </button>
+      </div>
+    </article>
+  )
+}

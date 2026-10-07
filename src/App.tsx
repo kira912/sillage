@@ -97,7 +97,7 @@ export default function App() {
           {tab === 'today' && <TodayView onOpen={open} onCreate={create} onCapture={capture} onOpenShopping={() => switchTab('shopping')} />}
           {tab === 'notes' && <NotesView onOpen={open} />}
           {tab === 'agenda' && <AgendaView selected={selectedDay} onSelect={setSelectedDay} onOpen={open} />}
-          {tab === 'shopping' && <ShoppingView />}
+          {tab === 'shopping' && <ShoppingView onOpenSettings={() => switchTab('settings')} />}
           {tab === 'settings' && <SettingsView />}
         </main>
         {!NO_CREATE.includes(tab) && (

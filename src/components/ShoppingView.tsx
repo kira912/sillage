@@ -20,12 +20,13 @@ import {
 import { useSpace } from '../lib/space'
 import type { Note } from '../lib/types'
 import { Picker, Row, SelectPicker } from './NoteEditor'
+import { RecipeIdeas } from './RecipeIdeas'
 import { useToast } from './Toast'
 
 const REMINDERS_TIMED = [0, 30, 60, 120, 1440]
 const REMINDERS_ALLDAY = [0, 1440]
 
-export function ShoppingView() {
+export function ShoppingView({ onOpenSettings }: { onOpenSettings: () => void }) {
   // `null` tant que la liste n'existe pas encore : elle est créée au premier article ajouté.
   const list = useLiveQuery(async () => (await db.notes.get(SHOPPING_ID)) ?? null, [])
   const [input, setInput] = useState('')
@@ -141,6 +142,8 @@ export function ShoppingView() {
           </button>
         </div>
       )}
+
+      {toBuy.length >= 2 && <RecipeIdeas items={toBuy.map((i) => i.name)} onOpenSettings={onOpenSettings} />}
 
       {note && (
         <div className="section">
