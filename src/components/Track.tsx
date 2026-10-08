@@ -6,6 +6,7 @@ import { describeRecurrence, fromKey, relativeDay } from '../lib/dates'
 import { plainText } from '../lib/richtext'
 import { isShoppingList, parseItems } from '../lib/shopping'
 import type { Note } from '../lib/types'
+import { NewBy } from './NoteCard'
 import { RichLine } from './RichText'
 import { SwipeToDelete } from './SwipeToDelete'
 import { useTrashNote } from './useTrashNote'
@@ -79,6 +80,7 @@ function StopRow({ stop: { note, dayKey }, onOpen, late }: { stop: Stop; onOpen:
         <span className="stop__dot" />
       </label>
       <button className="stop__open" onClick={() => onOpen(note.id)}>
+        {note.unread && <NewBy name={note.editedBy} />}
         <span className="stop__title">{note.title && !isShoppingList(note) ? <RichLine text={note.title} /> : title}</span>
         <StopMeta note={note} lateSince={late ? dayKey : undefined} />
       </button>

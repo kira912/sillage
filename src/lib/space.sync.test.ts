@@ -38,6 +38,9 @@ async function settle(c: Client) {
 
 const bodyOf = async (c: Client, id: string) => (await c.db.notes.get(id))?.body
 
+/** Adresse IP propre à chaque test : les limites anti-abus (créations d'espace par heure…) ne s'additionnent pas. */
+let testIp = 0
+
 beforeAll(() => {
   const storage = new Map<string, string>()
   const realFetch = globalThis.fetch
@@ -51,7 +54,8 @@ beforeAll(() => {
       // Les appels du client Redis (Upstash) passent normalement.
       if (!url.startsWith('/')) return realFetch(url, init)
       if (url !== '/api/space') throw new Error(`requête inattendue : ${url}`)
-      return spaceHandler(new Request('http://localhost/api/space', { method: 'POST', body: init.body, headers: init.headers }))
+      const headers = { ...(init.headers as Record<string, string>), 'x-real-ip': `10.0.0.${testIp}` }
+      return spaceHandler(new Request('http://localhost/api/space', { method: 'POST', body: init.body, headers }))
     },
   })
   Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true })
@@ -59,6 +63,7 @@ beforeAll(() => {
 
 // Avec Redis, les limites d'appels (créations d'espace par heure…) survivent d'un lancement des tests à l'autre.
 beforeEach(async () => {
+  testIp++
   const url = process.env.SILLAGE_TEST_REDIS_URL
   if (!url) return
   const redis = new Redis({ url, token: process.env.SILLAGE_TEST_REDIS_TOKEN ?? '' })
@@ -122,6 +127,37 @@ describe('synchronisation de l’espace partagé', () => {
       expect(list?.shared).toBe(true)
       expect(list?.body.split('\n').sort()).toEqual(['- [ ] lait', '- [ ] pain'])
     }
+  })
+
+  it('signale comme nouvelles les notes ajoutées ou mises dans l’agenda par un autre membre', async () => {
+    const a = await makeClient()
+    await a.space.createSpace('Famille', 'Alice')
+    const existing = a.newNote({ title: 'Idées vacances', shared: true })
+    await a.db.notes.add(existing)
+    await settle(a)
+
+    // En rejoignant l'espace, les notes déjà là ne sont pas des nouveautés.
+    const b = await makeClient()
+    await b.space.joinSpace(a.space.getSpace()!.secret, 'Bob')
+    await settle(b)
+    expect((await b.db.notes.get(existing.id))?.unread).toBeUndefined()
+
+    const added = a.newNote({ title: 'Pédiatre', date: '2026-10-09', shared: true })
+    await a.db.notes.add(added)
+    await a.db.notes.update(existing.id, { date: '2026-10-12', updatedAt: Date.now() })
+    await settle(a)
+    await settle(b)
+    expect(await b.db.notes.get(added.id)).toMatchObject({ unread: true, editedBy: 'Alice' })
+    expect((await b.db.notes.get(existing.id))?.unread).toBe(true)
+
+    // Les notes de Bob ne sont pas des nouveautés pour lui, et Alice ne voit pas les siennes comme nouvelles.
+    const own = b.newNote({ title: 'Liste cadeaux', shared: true })
+    await b.db.notes.add(own)
+    await settle(b)
+    await settle(a)
+    expect((await b.db.notes.get(own.id))?.unread).toBeUndefined()
+    expect((await a.db.notes.get(own.id))?.unread).toBe(true)
+    expect((await a.db.notes.get(added.id))?.unread).toBeUndefined()
   })
 
   it('transmet un gros espace en plusieurs envois et plusieurs pages', async () => {

@@ -6,6 +6,7 @@ import { SHOPPING_ID, mergeLists } from './shopping'
 import { sanitizeNote } from './note-schema'
 import { plainText } from './richtext'
 import { SECRET_RE, decryptJson, encryptJson, generateSecret, keyFor, spaceIdFor } from './space-crypto'
+import { forgetSpaceKey, pushSubscription, saveSpaceKey, spacePushWanted } from './space-push'
 import type { Note, SharedNote } from './types'
 
 /* ------------------------------------------------------------------------------------------------
@@ -33,7 +34,21 @@ export interface SpaceState {
   metaDirty?: boolean
   lastSync?: number
   lastError?: string
+  /** Toutes les notes de l'espace ont été reçues une fois : les suivantes sont des nouveautés à signaler. */
+  caughtUp?: boolean
+  /** Clé publique des notifications du serveur (absente s'il n'en envoie pas). */
+  vapidKey?: string
+  /** Abonnement aux notifications déclaré au serveur pour cet espace (`null` : aucun). */
+  pushEndpoint?: string | null
 }
+
+/** Résumé chiffré d'un envoi qui ajoute des notes, affiché en notification chez les autres membres. */
+export interface SpaceNotice {
+  by: string
+  count: number
+  items: { id: string; title: string; date?: string; time?: string }[]
+}
+const NOTICE_ITEMS = 3
 
 interface SpaceMeta {
   name: string
@@ -139,7 +154,7 @@ export async function joinSpace(invite: string, memberName: string) {
   if (!secret) throw new Error('Code d’invitation invalide')
   const [spaceId, key] = await Promise.all([spaceIdFor(secret), keyFor(secret)])
   const memberId = newId()
-  const res = await api<{ meta: string; members: { id: string; blob: string; lastSeen: number }[] }>('space', {
+  const res = await api<{ meta: string; members: { id: string; blob: string; lastSeen: number }[]; vapidPublicKey?: string | null }>('space', {
     body: { action: 'join', space: spaceId, member: { id: memberId, blob: await memberBlob(key, memberName) } },
   })
   const meta = await decryptMeta(key, res.meta)
@@ -153,6 +168,7 @@ export async function joinSpace(invite: string, memberName: string) {
     memberName,
     members: await decryptMembers(key, res.members),
     cursor: 0,
+    vapidKey: res.vapidPublicKey ?? undefined,
   })
   await syncSpace()
 }
@@ -165,8 +181,9 @@ export async function leaveSpace() {
   writeState(null)
   await running?.catch(() => {})
   await api('space', { body: { action: 'leave', space: s.spaceId, member: { id: s.memberId } } }).catch(() => {})
+  await forgetSpaceKey(s.spaceId)
   await db.transaction('rw', db.notes, db.sync, async () => {
-    await db.notes.filter((n) => !!n.shared).modify({ shared: false })
+    await db.notes.filter((n) => !!n.shared).modify({ shared: false, unread: undefined })
     await db.sync.clear()
   })
 }
@@ -186,7 +203,7 @@ export function shouldAutoShare(tags: string[]): boolean {
  * Synchronisation
  * ---------------------------------------------------------------------------------------------- */
 
-const LOCAL_ONLY: (keyof Note)[] = ['shared', 'editedBy']
+const LOCAL_ONLY: (keyof Note)[] = ['shared', 'editedBy', 'unread']
 
 function strip(note: Note): SharedNote {
   const copy: Partial<Note> = { ...note }
@@ -233,6 +250,7 @@ interface SyncResponse {
   full?: boolean
   meta: string | null
   members: { id: string; blob: string; lastSeen: number }[]
+  vapidPublicKey?: string | null
 }
 
 /** Notes envoyées par synchronisation : nombre et taille (la requête doit rester sous la limite de 4,5 Mo de Vercel). */
@@ -248,6 +266,8 @@ const tooLarge = new Map<string, string>()
 type SyncMode = 'push' | 'full'
 
 let running: Promise<void> | null = null
+/** Espace dont la clé a déjà été confiée au service worker pendant cette session. */
+let keySavedFor: string | null = null
 let rerun: SyncMode | null = null
 /** Dernier changement envoyé ou reçu : la fréquence de synchronisation ralentit quand l'espace est calme. */
 let lastActivity = Date.now()
@@ -294,6 +314,15 @@ async function runSync(mode: SyncMode) {
     .and((n) => !n.shared && !n.deletedAt)
     .modify({ shared: true })
 
+  // Notifications : abonnement de ce téléphone à déclarer (ou retirer) s'il a changé, clé pour le service worker.
+  const subscription = spacePushWanted() ? await pushSubscription().catch(() => null) : null
+  const endpoint = subscription?.endpoint ?? null
+  const pushChange = endpoint !== (s.pushEndpoint ?? null) ? (subscription?.toJSON() ?? null) : undefined
+  if (subscription && keySavedFor !== s.spaceId) {
+    await saveSpaceKey(s.spaceId, key)
+    keySavedFor = s.spaceId
+  }
+
   // 1. Ce qui a changé ici depuis la dernière synchronisation, dans la limite d'un envoi.
   const [notes, metas] = await Promise.all([db.notes.toArray(), db.sync.toArray()])
   const metaById = new Map(metas.map((m) => [m.id, m]))
@@ -301,6 +330,8 @@ async function runSync(mode: SyncMode) {
   const changes: { id: string; baseRev: number; blob: string | null }[] = []
   /** Contenu envoyé pour chaque note (`null` = retrait de l'espace). */
   const sent = new Map<string, SharedNote | null>()
+  /** Notes ajoutées à l'espace par cet envoi, ou mises dans l'agenda : les autres membres en sont prévenus. */
+  const added: Note[] = []
   let bytes = 0
   let pending = false
   const batchFull = () => changes.length >= BATCH || bytes >= MAX_REQUEST_BYTES
@@ -320,9 +351,11 @@ async function runSync(mode: SyncMode) {
       continue
     }
     tooLarge.delete(n.id)
-    changes.push({ id: n.id, baseRev: metaById.get(n.id)?.rev ?? 0, blob })
+    const meta = metaById.get(n.id)
+    changes.push({ id: n.id, baseRev: meta?.rev ?? 0, blob })
     sent.set(n.id, content)
     bytes += blob.length
+    if (n.id !== SHOPPING_ID && !n.deletedAt && (!meta || (meta.base && !meta.base.date && n.date))) added.push(n)
   }
   // Notes retirées du partage ou supprimées définitivement : on les retire de l'espace.
   for (const m of metas) {
@@ -334,7 +367,15 @@ async function runSync(mode: SyncMode) {
     changes.push({ id: m.id, baseRev: m.rev, blob: null })
     sent.set(m.id, null)
   }
-  if (mode === 'push' && !changes.length && !s.metaDirty) return
+  if (mode === 'push' && !changes.length && !s.metaDirty && pushChange === undefined) return
+
+  const notice: SpaceNotice | null = added.length
+    ? {
+        by: s.memberName,
+        count: added.length,
+        items: added.slice(0, NOTICE_ITEMS).map((n) => ({ id: n.id, title: plainText(n.title).slice(0, 80), date: n.date, time: n.time })),
+      }
+    : null
 
   // 2. Envoi + réception des changements des autres.
   const res = await api<SyncResponse>('space', {
@@ -345,6 +386,8 @@ async function runSync(mode: SyncMode) {
       since: s.cursor,
       changes,
       meta: s.metaDirty ? await encryptJson(key, { name: s.name, tags: s.tags } satisfies SpaceMeta) : undefined,
+      push: pushChange,
+      notify: notice ? { blob: await encryptJson(key, notice), ids: added.map((n) => n.id) } : undefined,
     },
   })
 
@@ -360,7 +403,7 @@ async function runSync(mode: SyncMode) {
       }
     }
     for (const e of [...res.conflicts, ...res.entries]) {
-      if (await applyEntry(key, e, s.memberName)) needsPush = true
+      if (await applyEntry(key, e, s.memberName, !s.caughtUp)) needsPush = true
     }
   })
   for (const id of res.rejected ?? []) {
@@ -380,6 +423,9 @@ async function runSync(mode: SyncMode) {
     ...current,
     cursor: Math.max(current.cursor, res.rev),
     members: await decryptMembers(key, res.members),
+    caughtUp: current.caughtUp || !res.more,
+    vapidKey: res.vapidPublicKey ?? undefined,
+    ...(pushChange !== undefined ? { pushEndpoint: endpoint } : {}),
     // Si le nom ou les étiquettes ont encore changé pendant l'envoi, on garde la version locale.
     ...(meta && !(current.metaDirty && (current.name !== s.name || current.tags !== s.tags)) ? { name: meta.name, tags: meta.tags, metaDirty: false } : {}),
   })
@@ -410,8 +456,9 @@ async function saveConflictCopy(local: Note) {
 /**
  * Applique une version reçue du serveur. Si la note a aussi été modifiée ici depuis la dernière synchronisation,
  * les deux versions sont fusionnées ; renvoie `true` si le résultat doit être renvoyé au serveur.
+ * `initial` : première réception des notes de l'espace (en le rejoignant) — rien n'est signalé comme nouveau.
  */
-async function applyEntry(key: CryptoKey, e: Entry, memberName: string): Promise<boolean> {
+async function applyEntry(key: CryptoKey, e: Entry, memberName: string, initial: boolean): Promise<boolean> {
   const meta = await db.sync.get(e.id)
   if (meta && meta.rev >= e.rev) return false // déjà à jour (souvent : notre propre envoi)
   const local = await db.notes.get(e.id)
@@ -457,7 +504,11 @@ async function applyEntry(key: CryptoKey, e: Entry, memberName: string): Promise
     push = fingerprint(next) !== fingerprint(remoteContent)
   }
 
-  await db.notes.put({ ...next, shared: true, editedBy: push ? memberName : by })
+  // Nouvelle pour ce téléphone : ajoutée par quelqu'un d'autre, ou mise dans l'agenda par quelqu'un d'autre.
+  const fromOther = !initial && by !== memberName && !next.deletedAt && e.id !== SHOPPING_ID
+  const unread = fromOther && (!local || (!local.date && !!next.date)) ? true : next.deletedAt ? undefined : local?.unread
+
+  await db.notes.put({ ...next, shared: true, editedBy: push ? memberName : by, unread })
   await db.sync.put({ id: e.id, rev: e.rev, fp: fingerprint(remoteContent), base: remoteContent })
   return push
 }

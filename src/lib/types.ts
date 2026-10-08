@@ -36,12 +36,14 @@ export interface Note {
   shared?: boolean
   /** Prénom de la dernière personne ayant modifié la note partagée. */
   editedBy?: string
+  /** Ajoutée (ou mise dans l'agenda) par un autre membre de l'espace, pas encore vue sur ce téléphone. */
+  unread?: true
   createdAt: number
   updatedAt: number
 }
 
 /** Contenu d'une note tel qu'il est partagé (sans les champs propres à ce téléphone). */
-export type SharedNote = Omit<Note, 'shared' | 'editedBy'>
+export type SharedNote = Omit<Note, 'shared' | 'editedBy' | 'unread'>
 
 /** Suivi local de la synchronisation d'une note partagée. */
 export interface SyncMeta {

@@ -3,6 +3,7 @@ import { activeNotes } from './db'
 import { isIos, isStandalone } from './platform'
 import { computeReminders } from './reminders'
 import { fromBase64Url } from './space-crypto'
+import { spacePushWanted } from './space-push'
 
 const ENABLED_KEY = 'sillage:push-enabled'
 
@@ -73,5 +74,6 @@ export async function disablePush() {
   const subscription = await getSubscription(false)
   if (!subscription) return
   await api('reminders', { method: 'DELETE', body: { subscription: subscription.toJSON() } }).catch(() => {})
-  await subscription.unsubscribe()
+  // Le même abonnement sert aux notifications de l'espace partagé : on le garde si elles sont activées.
+  if (!spacePushWanted()) await subscription.unsubscribe()
 }

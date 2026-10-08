@@ -1,4 +1,5 @@
 import type { Redis } from '@upstash/redis'
+import type { PushSubscription } from 'web-push'
 import { getRedis } from './redis.js'
 
 /**
@@ -17,6 +18,12 @@ export interface Member {
   id: string
   blob: string
   lastSeen: number
+}
+
+/** Abonnement aux notifications d'un téléphone membre de l'espace. */
+export interface PushTarget {
+  memberId: string
+  subscription: PushSubscription
 }
 
 export type ChangeResult = { ok: true; rev: number } | { ok: false; current: SpaceEntry } | { ok: false; full: true }
@@ -62,6 +69,10 @@ export interface SpaceStore {
   removeMember(space: string, id: string): Promise<number>
   /** Membres actifs (vus depuis moins de STALE_MEMBER_MS). */
   members(space: string): Promise<Member[]>
+  /** Abonnement aux notifications d'un membre (`null` : il n'en veut plus). */
+  setPush(space: string, memberId: string, subscription: PushSubscription | null): Promise<void>
+  /** Téléphones à prévenir quand quelqu'un ajoute une note. */
+  pushTargets(space: string): Promise<PushTarget[]>
   /** Repousse l'expiration de l'espace (au plus une fois par jour). */
   touch(space: string): Promise<void>
   delete(space: string): Promise<void>
@@ -75,9 +86,10 @@ const K = {
   members: (s: string) => `sillage:space:${s}:members`,
   bytes: (s: string) => `sillage:space:${s}:bytes`,
   touched: (s: string) => `sillage:space:${s}:touched`,
+  push: (s: string) => `sillage:space:${s}:push`,
 }
 
-const allKeys = (s: string) => [K.meta(s), K.rev(s), K.notes(s), K.log(s), K.members(s), K.bytes(s)]
+const allKeys = (s: string) => [K.meta(s), K.rev(s), K.notes(s), K.log(s), K.members(s), K.bytes(s), K.push(s)]
 
 /*
  * Modèle : le hash `notes` ne contient que les notes présentes (son HLEN est donc le nombre de notes) ;
@@ -207,8 +219,21 @@ class RedisSpaceStore implements SpaceStore {
     return ok === 1
   }
   async removeMember(space: string, id: string) {
-    await this.redis.hdel(K.members(space), id)
+    await Promise.all([this.redis.hdel(K.members(space), id), this.redis.hdel(K.push(space), id)])
     return this.redis.hlen(K.members(space))
+  }
+  async setPush(space: string, memberId: string, subscription: PushSubscription | null) {
+    if (!subscription) return void (await this.redis.hdel(K.push(space), memberId))
+    await this.redis.hset(K.push(space), { [memberId]: JSON.stringify(subscription) })
+    await this.redis.expire(K.push(space), SPACE_TTL_SECONDS)
+  }
+  async pushTargets(space: string) {
+    const all = await this.redis.hgetall<Record<string, unknown>>(K.push(space))
+    // Valeurs relues telles quelles ou déjà désérialisées selon le client Redis.
+    return Object.entries(all ?? {}).map(([memberId, raw]) => ({
+      memberId,
+      subscription: (typeof raw === 'string' ? JSON.parse(raw) : raw) as PushSubscription,
+    }))
   }
   async touch(space: string) {
     // Marqueur d'un jour : l'expiration n'est renouvelée qu'une fois par jour, pas à chaque synchronisation.
@@ -232,7 +257,14 @@ class RedisSpaceStore implements SpaceStore {
 class MemorySpaceStore implements SpaceStore {
   private spaces = new Map<
     string,
-    { meta: string; rev: number; bytes: number; notes: Map<string, SpaceEntry>; members: Map<string, Member> }
+    {
+      meta: string
+      rev: number
+      bytes: number
+      notes: Map<string, SpaceEntry>
+      members: Map<string, Member>
+      push: Map<string, PushSubscription>
+    }
   >()
 
   private get(space: string) {
@@ -242,7 +274,7 @@ class MemorySpaceStore implements SpaceStore {
   }
   async create(space: string, meta: string) {
     if (this.spaces.has(space)) return false
-    this.spaces.set(space, { meta, rev: 0, bytes: 0, notes: new Map(), members: new Map() })
+    this.spaces.set(space, { meta, rev: 0, bytes: 0, notes: new Map(), members: new Map(), push: new Map() })
     return true
   }
   async exists(space: string) {
@@ -291,9 +323,18 @@ class MemorySpaceStore implements SpaceStore {
     return true
   }
   async removeMember(space: string, id: string) {
-    const members = this.get(space).members
-    members.delete(id)
-    return members.size
+    const s = this.get(space)
+    s.members.delete(id)
+    s.push.delete(id)
+    return s.members.size
+  }
+  async setPush(space: string, memberId: string, subscription: PushSubscription | null) {
+    const push = this.get(space).push
+    if (subscription) push.set(memberId, subscription)
+    else push.delete(memberId)
+  }
+  async pushTargets(space: string) {
+    return [...this.get(space).push].map(([memberId, subscription]) => ({ memberId, subscription }))
   }
   async members(space: string) {
     const now = Date.now()

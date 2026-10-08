@@ -1,6 +1,7 @@
 import { error, guard, json, readJson } from './_lib/http.js'
+import { isSubscription, pushConfigured, sendPush, vapidPublicKey } from './_lib/push.js'
 import { clientIp, rateLimit } from './_lib/rate-limit.js'
-import { getSpaceStore, type SpaceEntry } from './_lib/space-store.js'
+import { getSpaceStore, type SpaceStore, type SpaceEntry } from './_lib/space-store.js'
 
 const MAX_BLOB = 64_000
 const MAX_CHANGES = 200
@@ -19,9 +20,35 @@ interface Body {
   member?: { id?: unknown; blob?: unknown }
   since?: unknown
   changes?: unknown
+  /** Abonnement aux notifications de ce téléphone, ou `null` pour ne plus en recevoir. */
+  push?: unknown
+  /** Notes ajoutées par cet envoi : résumé chiffré (prénom, titres) à transmettre aux autres membres. */
+  notify?: { blob?: unknown; ids?: unknown }
 }
 
 const isBlob = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= MAX_BLOB
+/** Le résumé voyage dans la notification, limitée à environ 4 Ko. */
+const MAX_NOTICE = 2_000
+/** Notifications envoyées par espace et par heure, au-delà desquelles on se tait (import massif, abus). */
+const MAX_NOTICES_PER_HOUR = 60
+
+/**
+ * Prévient les autres membres qu'une note a été ajoutée. Le serveur ne lit pas le résumé : chaque téléphone le
+ * déchiffre avec la clé de l'espace pour afficher la notification.
+ */
+async function notifyMembers(store: SpaceStore, space: string, sender: string, notice: string, tag: string) {
+  if (!(await rateLimit(`space-notify:${space}`, MAX_NOTICES_PER_HOUR, 3600))) return
+  const targets = (await store.pushTargets(space)).filter((t) => t.memberId !== sender)
+  await Promise.allSettled(
+    targets.map(async (t) => {
+      const result = await sendPush(t.subscription, { kind: 'space', space, notice, tag })
+      if (result === 'gone') await store.setPush(space, t.memberId, null)
+    }),
+  )
+}
+
+/** Clé publique des notifications, pour qu'un membre puisse s'abonner sans le code d'accès de l'assistant. */
+const pushKey = () => (pushConfigured() ? vapidPublicKey() : null)
 /** Plafond global de créations par jour, au cas où les abus viendraient de nombreuses adresses IP. */
 const MAX_CREATIONS_PER_DAY = 200
 
@@ -65,7 +92,7 @@ export const POST = guard(async (request: Request) => {
       if (!(await store.exists(space))) return error(404, 'Aucun espace ne correspond à ce code')
       if (!(await touchMember())) return tooManyMembers()
       await store.touch(space)
-      return json({ meta: await store.getMeta(space), members: await store.members(space) })
+      return json({ meta: await store.getMeta(space), members: await store.members(space), vapidPublicKey: pushKey() })
     }
 
     case 'sync': {
@@ -97,6 +124,17 @@ export const POST = guard(async (request: Request) => {
       }
 
       if (isBlob(body.meta)) await store.setMeta(space, body.meta)
+      if (body.push === null) await store.setPush(space, memberId, null)
+      else if (isSubscription(body.push)) await store.setPush(space, memberId, body.push)
+
+      // Résumé des notes ajoutées, envoyé seulement si au moins l'une d'elles a bien été enregistrée.
+      const notice = body.notify?.blob
+      const noticeIds = Array.isArray(body.notify?.ids) ? body.notify.ids : []
+      const added = accepted.find((a) => noticeIds.includes(a.id))
+      if (added && typeof notice === 'string' && notice.length <= MAX_NOTICE && pushConfigured()) {
+        await notifyMembers(store, space, memberId, notice, `space:${added.id}`).catch((e) => console.error('Notification de l’espace', e))
+      }
+
       // Les versions en conflit voyagent dans la même réponse : la page de changements se contente du reste.
       const conflictBytes = conflicts.reduce((sum, e) => sum + (e.blob?.length ?? 0), 0)
       const [page, meta, members] = await Promise.all([
@@ -105,7 +143,7 @@ export const POST = guard(async (request: Request) => {
         store.members(space),
         store.touch(space),
       ])
-      return json({ ...page, accepted, conflicts, rejected, full, meta, members })
+      return json({ ...page, accepted, conflicts, rejected, full, meta, members, vapidPublicKey: pushKey() })
     }
 
     case 'leave': {

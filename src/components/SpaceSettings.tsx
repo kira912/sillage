@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { ClipboardPaste, Copy, LogOut, RefreshCw, Share2, UserPlus, Users, X } from 'lucide-react'
+import { Bell, ClipboardPaste, Copy, LogOut, RefreshCw, Share2, UserPlus, Users, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { db } from '../lib/db'
 import { fmt } from '../lib/dates'
@@ -16,6 +16,8 @@ import {
   type SpaceState,
 } from '../lib/space'
 import { isIos, isStandalone } from '../lib/platform'
+import { isPushEnabled, pushSupport } from '../lib/push'
+import { pushSubscription, setSpacePushWanted, spacePushWanted } from '../lib/space-push'
 import { useConfirm } from './Sheet'
 import { useToast } from './Toast'
 
@@ -418,6 +420,8 @@ function SpaceDetails({ space }: { space: SpaceState }) {
         )}
       </div>
 
+      <SpaceNotifications space={space} />
+
       <div className="row">
         <span className="row__icon"><RefreshCw size={18} className={syncing ? 'spin' : ''} /></span>
         <span className="row__label row__label--grow">
@@ -438,3 +442,51 @@ function SpaceDetails({ space }: { space: SpaceState }) {
     </div>
   )
 }
+
+/** Notification sur ce téléphone quand un autre membre ajoute une note ou met une note dans l'agenda. */
+function SpaceNotifications({ space }: { space: SpaceState }) {
+  const [on, setOn] = useState(spacePushWanted)
+  const [busy, setBusy] = useState(false)
+  const toast = useToast()
+  const support = pushSupport()
+
+  let unavailable: string | null = null
+  if (support === 'needs-install') unavailable = 'Installez l’app sur l’écran d’accueil pour les recevoir.'
+  else if (support === 'unsupported') unavailable = 'Non disponibles sur ce navigateur.'
+  else if (!space.vapidKey) unavailable = space.lastSync ? 'Non configurées sur le serveur.' : null
+  else if (Notification.permission === 'denied') unavailable = 'Refusées : autorisez-les dans Réglages iPhone › Sillage.'
+
+  async function toggle(next: boolean) {
+    setBusy(true)
+    try {
+      if (next) {
+        // Demande de permission : doit partir directement du geste de l'utilisateur (exigence d'iOS).
+        if ((await Notification.requestPermission()) !== 'granted') throw new Error('Notifications refusées : autorisez-les dans Réglages iPhone › Sillage.')
+        await pushSubscription({ vapidKey: space.vapidKey! })
+      }
+      setSpacePushWanted(next)
+      await syncSpace()
+      if (!next && !isPushEnabled()) await (await pushSubscription())?.unsubscribe()
+      setOn(next)
+      toast(next ? 'Notifications des nouvelles notes activées' : 'Notifications des nouvelles notes désactivées')
+    } catch (e) {
+      toast((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <label className="row">
+      <span className="row__icon"><Bell size={18} /></span>
+      <span className="row__label row__label--grow row__label--stack">
+        Prévenir quand quelqu’un ajoute une note
+        <small className="muted">{unavailable ?? 'Notification sur ce téléphone, et pastille sur l’icône de l’app.'}</small>
+      </span>
+      {!unavailable && (
+        <input type="checkbox" role="switch" className="switch" checked={on} disabled={busy || !space.vapidKey} onChange={(e) => toggle(e.target.checked)} />
+      )}
+    </label>
+  )
+}
+

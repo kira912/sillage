@@ -1,3 +1,4 @@
+import { useLiveQuery } from 'dexie-react-hooks'
 import { CalendarDays, NotebookPen, Plus, Settings, ShoppingCart, Sun } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AgendaView, type AgendaMode } from './components/AgendaView'
@@ -14,8 +15,10 @@ import { fmt, toKey } from './lib/dates'
 import { isPushEnabled, syncReminders } from './lib/push'
 import { SHOPPING_ID } from './lib/shopping'
 import { getSpace, pollDelay, syncSpace } from './lib/space'
+import { setAppBadge } from './lib/space-push'
 import { useToday } from './lib/today'
 import type { Note } from './lib/types'
+import { markRead, unreadNotes, unreadTab } from './lib/unread'
 
 type Tab = 'today' | 'notes' | 'agenda' | 'shopping' | 'settings'
 type EditorState = { id: string | null; defaults?: Partial<Note> } | null
@@ -36,7 +39,13 @@ const NO_CREATE: Tab[] = ['shopping', 'settings']
 
 export default function App() {
   // Un lien d'invitation (#rejoindre=…) ouvre directement les réglages de partage.
-  const [tab, setTab] = useState<Tab>(() => (location.hash.startsWith('#rejoindre=') ? 'settings' : 'today'))
+  const [tab, setTab] = useState<Tab>(initialTab)
+  const tabRef = useRef(tab)
+  useEffect(() => {
+    tabRef.current = tab
+  }, [tab])
+  const unread = useLiveQuery(unreadNotes, []) ?? []
+  const unreadCount = (t: Tab) => (t === 'notes' || t === 'agenda' ? unread.filter((n) => unreadTab(n) === t).length : 0)
   const [overlay, setOverlay] = useState<Overlay>(null)
   const [selectedDay, setSelectedDay] = useState(() => new Date())
   const today = useToday()
@@ -48,6 +57,28 @@ export default function App() {
     purgeOldTrash()
     // Demande silencieuse : accordée d'office aux apps installées sur l'écran d'accueil.
     navigator.storage?.persist?.()
+  }, [])
+
+  // Pastille de l'icône de l'app : le nombre de nouveautés de l'espace partagé.
+  useEffect(() => {
+    void setAppBadge(unread.length)
+  }, [unread.length])
+
+  // Toucher une notification « nouvelle note » ouvre l'onglet concerné ; quitter l'app vaut lecture de l'onglet affiché.
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type !== 'sillage:open-tab' || (e.data.tab !== 'notes' && e.data.tab !== 'agenda')) return
+      switchTab(e.data.tab)
+      if (getSpace()) void syncSpace()
+    }
+    const onHidden = () => document.visibilityState === 'hidden' && markSeen(tabRef.current)
+    navigator.serviceWorker?.addEventListener('message', onMessage)
+    document.addEventListener('visibilitychange', onHidden)
+    return () => {
+      navigator.serviceWorker?.removeEventListener('message', onMessage)
+      document.removeEventListener('visibilitychange', onHidden)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Éditeur et saisie rapide ajoutent une entrée d'historique : le geste « retour » du téléphone les ferme.
@@ -76,6 +107,8 @@ export default function App() {
     openOverlay({ kind: 'editor', state: { id: null, defaults: tab === 'agenda' ? { date: toKey(selectedDay) } : {} } })
 
   function switchTab(next: Tab) {
+    if (next !== tabRef.current) markSeen(tabRef.current)
+    tabRef.current = next
     setTab(next)
     tabScroll.current = 0
     window.scrollTo({ top: 0 })
@@ -110,10 +143,14 @@ export default function App() {
             <button
               key={id}
               className={`tabbar__item${tab === id ? ' tabbar__item--on' : ''}`}
+              aria-label={unreadCount(id) ? `${label}, ${unreadCount(id)} nouvelle${unreadCount(id) > 1 ? 's' : ''}` : undefined}
               onClick={() => switchTab(id)}
               aria-current={tab === id ? 'page' : undefined}
             >
-              <Icon size={22} strokeWidth={tab === id ? 2.4 : 1.8} />
+              <span className="tabbar__icon">
+                <Icon size={22} strokeWidth={tab === id ? 2.4 : 1.8} />
+                {unreadCount(id) > 0 && <span className="tabbar__badge">{unreadCount(id)}</span>}
+              </span>
               {label}
             </button>
           ))}
@@ -148,6 +185,19 @@ export default function App() {
       )}
     </>
   )
+}
+
+/** Onglet d'ouverture : réglages pour un lien d'invitation, Notes ou Agenda depuis une notification. */
+function initialTab(): Tab {
+  if (location.hash.startsWith('#rejoindre=')) return 'settings'
+  const fromNotification = location.hash.match(/^#onglet=(notes|agenda)$/)?.[1] as Tab | undefined
+  if (fromNotification) history.replaceState(null, '', location.pathname)
+  return fromNotification ?? 'today'
+}
+
+/** Les nouveautés d'un onglet sont vues quand on le quitte (ou qu'on quitte l'app depuis cet onglet). */
+function markSeen(tab: Tab) {
+  if (tab === 'notes' || tab === 'agenda') void markRead((n) => unreadTab(n) === tab)
 }
 
 /**

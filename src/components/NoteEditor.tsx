@@ -28,6 +28,7 @@ import { WEEKDAYS_SHORT, WEEK_ORDER, describeReminder, fmt, fromKey, relativeDay
 import { addToCalendar } from '../lib/ics'
 import { shouldAutoShare, useSpace } from '../lib/space'
 import { plainText } from '../lib/richtext'
+import { markRead } from '../lib/unread'
 import { isShoppingList } from '../lib/shopping'
 import { NOTE_COLORS, type Freq, type Note, type NoteColor } from '../lib/types'
 import { Picker, Row, SelectPicker } from './Fields'
@@ -97,6 +98,12 @@ export function NoteEditor({ id, defaults, onClose, onReplace, onAnalyze }: Prop
       const n = (id && (await db.notes.get(id))) || newNote({ ...defaults, shared: shouldAutoShare(defaults?.tags ?? []) || undefined })
       if (cancelled) return
       initialDate.current = n.date
+      // Ouvrir une nouveauté de l'espace partagé la marque comme vue.
+      if (n.unread) {
+        delete n.unread
+        await markRead((x) => x.id === n.id)
+        if (cancelled) return
+      }
       setDraft(n)
     })()
     return () => {

@@ -35,6 +35,7 @@ export function NoteCard({ note, onOpen }: Props) {
   return (
     <SwipeToDelete id={note.id} onDelete={() => trash(note)}>
       <article className={`card${note.color ? ` card--${note.color}` : ''}`}>
+        {note.unread && <NewBy name={note.editedBy} />}
         <div className="card__head">
           <h3 className="card__titles">
             <button className="card__open card__title" onClick={() => onOpen(note.id)}>
@@ -108,4 +109,9 @@ export function NoteCard({ note, onOpen }: Props) {
       </article>
     </SwipeToDelete>
   )
+}
+
+/** Repère d'une note ajoutée par un autre membre de l'espace, pas encore vue ici. */
+export function NewBy({ name }: { name?: string }) {
+  return <span className="new-by">Nouvelle{name ? ` · ajoutée par ${name}` : ''}</span>
 }
