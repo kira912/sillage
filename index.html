@@ -2,17 +2,238 @@
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- L'app installée et les anciens liens d'invitation ouvrent directement l'app, avant tout affichage. -->
+    <script src="/open-app.js"></script>
+    <title>Sillage : agenda familial et liste de courses partagée</title>
+    <meta
+      name="description"
+      content="Notes, rendez-vous et liste de courses partagés en famille, sur iPhone et Android. Gratuit, sans compte, fonctionne hors ligne et s’installe sans App Store."
+    />
+    <link rel="canonical" href="https://sillage-gray.vercel.app/" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#f7f5f6" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#141012" media="(prefers-color-scheme: dark)" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Sillage" />
-    <title>Sillage</title>
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Sillage" />
+    <meta property="og:locale" content="fr_FR" />
+    <meta property="og:url" content="https://sillage-gray.vercel.app/" />
+    <meta property="og:title" content="Sillage : la journée de la famille, sur une seule ligne" />
+    <meta property="og:description" content="Notes, agenda et liste de courses partagés en famille. Gratuit, sans compte, même hors ligne." />
+    <meta property="og:image" content="https://sillage-gray.vercel.app/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="L’écran Aujourd’hui de Sillage : la journée sur une ligne, avec les rendez-vous et les courses." />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebApplication",
+            "name": "Sillage",
+            "url": "https://sillage-gray.vercel.app/",
+            "description": "Notes, agenda et liste de courses partagés en famille. Fonctionne hors ligne et s’installe sur l’écran d’accueil, sans App Store.",
+            "applicationCategory": "LifestyleApplication",
+            "operatingSystem": "iOS, Android, navigateur web",
+            "inLanguage": "fr",
+            "isAccessibleForFree": true,
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
+            "screenshot": "https://sillage-gray.vercel.app/landing/aujourdhui-clair.webp",
+            "featureList": [
+              "Journée sur une ligne : rendez-vous, tâches et rappels",
+              "Liste de courses partagée, rangée par rayon",
+              "Agenda avec répétitions (chaque semaine, chaque mois…)",
+              "Espace familial chiffré de bout en bout",
+              "Fonctionne hors ligne"
+            ]
+          },
+          {
+            "@type": "FAQPage",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "Sillage est-il gratuit ?",
+                "acceptedAnswer": { "@type": "Answer", "text": "Oui. Pas d’abonnement, pas de publicité, pas de compte à créer." }
+              },
+              {
+                "@type": "Question",
+                "name": "Comment installer Sillage sur iPhone sans App Store ?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Ouvrez sillage-gray.vercel.app dans Safari, touchez le bouton Partager, choisissez « Sur l’écran d’accueil », puis « Ajouter ». Sillage s’ouvre ensuite comme une app, en plein écran."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Mes notes sont-elles privées ?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Vos notes sont enregistrées sur votre téléphone. Celles que vous partagez avec la famille sont chiffrées sur le téléphone avant d’être envoyées : le serveur ne peut pas les lire."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Sillage fonctionne-t-il sans connexion ?",
+                "acceptedAnswer": { "@type": "Answer", "text": "Oui. Tout s’utilise hors ligne ; le partage se synchronise dès que le réseau revient." }
+              },
+              {
+                "@type": "Question",
+                "name": "Sillage marche-t-il sur Android ?",
+                "acceptedAnswer": { "@type": "Answer", "text": "Oui. Dans Chrome, ouvrez le site puis touchez « Installer l’application » dans le menu." }
+              }
+            ]
+          }
+        ]
+      }
+    </script>
+
+    <link rel="stylesheet" href="/src/landing/landing.css" />
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Sillage, accueil">
+        <img src="/favicon.svg" alt="" width="32" height="32" />
+        <span>Sillage</span>
+      </a>
+      <a class="button button--quiet" href="/app/">Ouvrir l’app</a>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero__text">
+          <h1>La journée de la famille, sur une seule ligne.</h1>
+          <p class="lede">
+            Rendez-vous, liste de courses partagée et notes : Sillage garde ce qu’il faut retenir et le montre au bon
+            moment, à toute la maison.
+          </p>
+          <div class="actions">
+            <a class="button" href="/app/">Ouvrir Sillage</a>
+            <a class="button button--quiet" href="#installer">L’installer sur iPhone</a>
+          </div>
+          <p class="fineprint">Gratuit, sans compte et sans passer par l’App Store.</p>
+        </div>
+        <figure class="phone">
+          <picture>
+            <source srcset="/landing/aujourdhui-sombre.webp" media="(prefers-color-scheme: dark)" />
+            <img
+              src="/landing/aujourdhui-clair.webp"
+              alt="L’écran Aujourd’hui : chaque rendez-vous sur une ligne, ce qui est fait en magenta, l’heure actuelle marquée d’une balise jaune."
+              width="390"
+              height="844"
+              fetchpriority="high"
+            />
+          </picture>
+        </figure>
+      </section>
+
+      <section class="feature">
+        <div class="feature__text">
+          <h2>Ce qui est fait laisse une trace</h2>
+          <p>
+            Chaque rendez-vous a son heure et son point sur la ligne de la journée. Touchez le point quand c’est fait :
+            la ligne se colore derrière vous, comme le sillage d’un bateau. Une balise marque l’heure qu’il est, les
+            retards remontent en haut.
+          </p>
+          <p>
+            Les choses qui reviennent (le sport du mardi, les poubelles, les factures du mois) se répètent toutes
+            seules, et un rendez-vous s’ajoute au Calendrier de l’iPhone avec son rappel.
+          </p>
+        </div>
+        <figure class="phone phone--small">
+          <picture>
+            <source srcset="/landing/agenda-sombre.webp" media="(prefers-color-scheme: dark)" />
+            <img src="/landing/agenda-clair.webp" alt="L’agenda : le calendrier du mois, puis la ligne du jour choisi." width="390" height="844" loading="lazy" />
+          </picture>
+        </figure>
+      </section>
+
+      <section class="feature feature--reverse">
+        <div class="feature__text">
+          <h2>Une liste de courses pour toute la maison</h2>
+          <p>
+            Tapez « lait, 2 baguettes, 500 g de farine » : les articles s’ajoutent d’un coup, les doublons
+            s’additionnent et la liste se range dans l’ordre des rayons du supermarché.
+          </p>
+          <p>
+            La liste est la même sur tous les téléphones de la famille. Ce que l’un coche au magasin passe dans le
+            panier chez tout le monde, et « Courses terminées » remet la liste à zéro.
+          </p>
+        </div>
+        <figure class="phone phone--small">
+          <picture>
+            <source srcset="/landing/courses-sombre.webp" media="(prefers-color-scheme: dark)" />
+            <img src="/landing/courses-clair.webp" alt="La liste de courses rangée par rayon : fruits et légumes, boulangerie, crèmerie." width="390" height="844" loading="lazy" />
+          </picture>
+        </figure>
+      </section>
+
+      <section class="points" aria-labelledby="points-title">
+        <h2 id="points-title">Pensé pour une famille, pas pour un bureau</h2>
+        <div class="points__grid">
+          <div class="point">
+            <h3>Un espace partagé</h3>
+            <p>Invitez votre famille avec un lien. Chaque note reste personnelle ou devient partagée, et une notification arrive quand quelqu’un en ajoute une.</p>
+          </div>
+          <div class="point">
+            <h3>Chiffré de bout en bout</h3>
+            <p>Les notes partagées sont chiffrées sur le téléphone avant de partir : le serveur ne peut pas les lire.</p>
+          </div>
+          <div class="point">
+            <h3>Même sans réseau</h3>
+            <p>Au supermarché en sous-sol ou dans le train : tout fonctionne hors ligne et se synchronise au retour du réseau.</p>
+          </div>
+          <div class="point">
+            <h3>Des notes qui se lisent</h3>
+            <p>Gras, italique, couleurs, cases à cocher : une liste de valise ou un code de portail se retrouvent d’un coup d’œil.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="install" id="installer" aria-labelledby="install-title">
+        <h2 id="install-title">L’installer sur iPhone</h2>
+        <p>Sillage s’installe depuis Safari, sans App Store, en trente secondes.</p>
+        <ol class="steps">
+          <li>Ouvrez <strong>sillage-gray.vercel.app</strong> dans Safari.</li>
+          <li>Touchez le bouton <strong>Partager</strong>, puis <strong>Sur l’écran d’accueil</strong>.</li>
+          <li>Touchez <strong>Ajouter</strong>. Sillage s’ouvre désormais depuis son icône, en plein écran.</li>
+        </ol>
+        <p class="muted">Sur Android : ouvrez le site dans Chrome, puis <strong>Installer l’application</strong> dans le menu.</p>
+        <a class="button" href="/app/">Ouvrir Sillage</a>
+      </section>
+
+      <section class="faq" aria-labelledby="faq-title">
+        <h2 id="faq-title">Questions fréquentes</h2>
+        <dl>
+          <dt>Sillage est-il gratuit ?</dt>
+          <dd>Oui. Pas d’abonnement, pas de publicité, pas de compte à créer.</dd>
+          <dt>Mes notes sont-elles privées ?</dt>
+          <dd>
+            Vos notes sont enregistrées sur votre téléphone. Celles que vous partagez avec la famille sont chiffrées sur
+            le téléphone avant d’être envoyées : le serveur ne peut pas les lire. Vous pouvez exporter une sauvegarde à
+            tout moment.
+          </dd>
+          <dt>Faut-il que toute la famille ait un iPhone ?</dt>
+          <dd>Non. Sillage fonctionne aussi sur Android et dans n’importe quel navigateur récent.</dd>
+          <dt>Y a-t-il un assistant IA ?</dt>
+          <dd>
+            Oui : écrivez ou dictez plusieurs choses d’un coup et l’IA en fait des notes datées, ou trouvez des idées de
+            recettes à partir de la liste de courses. Ces fonctions, comme les rappels par notification, demandent pour
+            l’instant un code d’accès.
+          </dd>
+          <dt>Que se passe-t-il si je change de téléphone ?</dt>
+          <dd>Exportez une sauvegarde depuis les réglages et restaurez-la sur le nouveau. Les notes partagées reviennent toutes seules en rejoignant votre espace.</dd>
+        </dl>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>Sillage, notes et agenda pour la famille.</span>
+      <a href="/app/">Ouvrir l’app</a>
+    </footer>
   </body>
-</html>

@@ -1,0 +1,6 @@
+# La page d'accueil présente Sillage ; l'app (/app/) et le serveur (/api/) n'ont rien à indexer.
+User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: https://sillage-gray.vercel.app/sitemap.xml

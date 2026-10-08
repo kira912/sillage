@@ -74,6 +74,12 @@ export default defineConfig({
   // allowedHosts : autorise un tunnel HTTPS (cloudflared) pour tester l'installation de la PWA.
   server: { host: true, allowedHosts: ['.trycloudflare.com'] },
   preview: { host: true },
+  // Deux pages : la page d'accueil publique (/) et l'app (/app/).
+  build: {
+    rollupOptions: {
+      input: { home: 'index.html', app: 'app/index.html' },
+    },
+  },
   plugins: [
     react(),
     apiServer(),
@@ -83,17 +89,24 @@ export default defineConfig({
       workbox: {
         // La police des titres fait partie de l'app : elle doit être là hors ligne.
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
+        // L'image d'aperçu des liens partagés ne sert pas dans l'app.
+        globIgnores: ['og.png'],
         // Gestion des notifications push dans le service worker généré.
         importScripts: ['push-sw.js'],
+        // Navigation hors ligne dans l'app : sa page ; la page d'accueil (/) est précachée telle quelle.
+        navigateFallback: '/app/index.html',
+        navigateFallbackAllowlist: [/^\/app\//],
         navigateFallbackDenylist: [/^\/api\//],
       },
       manifest: {
         name: 'Sillage — notes & agenda',
         short_name: 'Sillage',
-        description: 'Notes, listes et rendez-vous, même hors ligne.',
+        description: 'Notes, agenda et liste de courses partagés en famille, même hors ligne.',
         lang: 'fr',
+        // Identité inchangée (« / ») : les apps déjà installées restent la même app ; elles démarrent sur la page
+        // d'accueil, qui les renvoie aussitôt vers /app/ (voir public/open-app.js).
         id: '/',
-        start_url: '/',
+        start_url: '/app/',
         scope: '/',
         display: 'standalone',
         background_color: '#f7f5f6',

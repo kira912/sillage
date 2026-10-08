@@ -1,0 +1,104 @@
+/* Page d'accueil publique : mêmes tokens que l'app (papier, encre, route magenta, titres en italique). */
+@import '../tokens.css';
+
+:root {
+  /* Contour des téléphones : sombre dans les deux thèmes, comme un vrai appareil. */
+  --bezel: #231b20;
+  color-scheme: light dark;
+  font-family: var(--font-text);
+  font-size: 17px;
+  line-height: var(--leading-loose);
+  color: var(--ink);
+  background: var(--paper);
+  -webkit-text-size-adjust: 100%;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); }
+h1, h2, h3, p, dl, dd, figure { margin: 0; }
+a { color: var(--route); }
+:focus-visible { outline: 2px solid var(--route); outline-offset: 3px; }
+.muted { color: var(--ink-2); }
+
+h1, h2 { font-family: var(--font-chart); font-style: italic; font-weight: 500; letter-spacing: -0.01em; text-wrap: balance; }
+h1 { font-size: clamp(2.3rem, 7vw, 3.6rem); line-height: 1.05; }
+h2 { font-size: clamp(1.7rem, 4.5vw, 2.3rem); line-height: 1.15; }
+h3 { font-size: var(--text-lg); line-height: var(--leading-tight); }
+
+main, .site-header, .site-footer { width: 100%; max-width: 1040px; margin: 0 auto; padding-inline: var(--gutter); }
+main { display: flex; flex-direction: column; gap: var(--space-7); padding-block: var(--space-5) var(--space-7); }
+section { scroll-margin-top: var(--space-5); }
+
+/* ---------- En-tête et pied ---------- */
+.site-header {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
+  padding-block: calc(env(safe-area-inset-top) + var(--space-4)) var(--space-2);
+}
+.brand { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--ink); text-decoration: none; }
+.brand img { border-radius: 8px; }
+.brand span { font-family: var(--font-chart); font-style: italic; font-weight: 500; font-size: var(--text-xl); }
+.site-footer {
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-3);
+  padding-block: var(--space-5) calc(env(safe-area-inset-bottom) + var(--space-5));
+  border-top: var(--hairline); color: var(--ink-2); font-size: var(--text-sm);
+}
+
+/* ---------- Boutons ---------- */
+.actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.button {
+  display: inline-flex; align-items: center; justify-content: center; min-height: var(--tap); padding: 0 22px;
+  border-radius: var(--radius-control); background: var(--route); color: var(--on-route);
+  font-weight: 600; text-decoration: none; transition: filter var(--duration-press), transform var(--duration-press) var(--ease-out);
+}
+.button:active { filter: brightness(0.93); transform: scale(0.98); }
+.button--quiet { background: var(--route-soft); color: var(--route); }
+
+/* ---------- Téléphones (vraies captures de l'app) ---------- */
+.phone {
+  justify-self: center; width: min(320px, 78vw); padding: 9px; border-radius: 44px;
+  background: var(--bezel); box-shadow: var(--shadow-overlay);
+}
+.phone img { display: block; width: 100%; height: auto; border-radius: 35px; }
+.phone--small { width: min(280px, 70vw); }
+
+/* ---------- Sections ---------- */
+.hero { display: grid; gap: var(--space-6); align-items: center; }
+.hero__text { display: flex; flex-direction: column; gap: var(--space-4); }
+.lede { font-size: var(--text-lg); color: var(--ink-2); max-width: 34ch; }
+.fineprint { color: var(--ink-2); font-size: var(--text-sm); }
+
+.feature { display: grid; gap: var(--space-5); align-items: center; }
+.feature__text { display: flex; flex-direction: column; gap: var(--space-3); max-width: 60ch; }
+
+.points { display: flex; flex-direction: column; gap: var(--space-5); }
+.points__grid { display: grid; gap: var(--space-5); grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.point { display: flex; flex-direction: column; gap: var(--space-2); padding-top: var(--space-3); border-top: 2px solid var(--route); }
+.point p { color: var(--ink-2); }
+
+.install {
+  display: flex; flex-direction: column; gap: var(--space-4); align-items: flex-start;
+  padding: var(--space-5); border-radius: var(--radius-sheet); background: var(--tint);
+}
+.steps { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: var(--space-2); }
+.steps li::marker { font-family: var(--font-chart); font-style: italic; color: var(--route); }
+
+.faq { display: flex; flex-direction: column; gap: var(--space-4); max-width: 68ch; }
+.faq dl { display: flex; flex-direction: column; }
+.faq dt { font-weight: 600; padding-top: var(--space-4); border-top: var(--hairline); }
+.faq dt:first-child { border-top: 0; padding-top: 0; }
+.faq dd { color: var(--ink-2); padding: var(--space-1) 0 var(--space-4); }
+
+@media (prefers-color-scheme: dark) {
+  :root { --bezel: #2e252a; }
+  .phone { box-shadow: var(--shadow-overlay), 0 0 0 1px var(--rule); }
+}
+
+@media (min-width: 760px) {
+  .hero { grid-template-columns: 1.15fr 1fr; padding-top: var(--space-5); }
+  .feature { grid-template-columns: 1.2fr 1fr; }
+  .feature--reverse .feature__text { order: 2; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}

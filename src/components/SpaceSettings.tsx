@@ -141,7 +141,7 @@ export function InviteCard() {
 
   async function copyInvite() {
     try {
-      await navigator.clipboard.writeText(`${location.origin}/#${invite}`)
+      await navigator.clipboard.writeText(`${location.origin}/app/#${invite}`)
       toast('Invitation copiée')
     } catch {
       toast('Copie impossible')

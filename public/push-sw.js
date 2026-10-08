@@ -119,7 +119,7 @@ self.addEventListener('notificationclick', (event) => {
         if (tab) existing.postMessage({ type: 'sillage:open-tab', tab })
         return existing.focus()
       }
-      return self.clients.openWindow(tab ? `/#onglet=${tab}` : '/')
+      return self.clients.openWindow(tab ? `/app/#onglet=${tab}` : '/app/')
     }),
   )
 })

@@ -115,7 +115,7 @@ export function inviteCode(state: SpaceState): string {
 }
 
 export function inviteLink(state: SpaceState): string {
-  return `${location.origin}/#rejoindre=${encodeURIComponent(inviteCode(state))}`
+  return `${location.origin}/app/#rejoindre=${encodeURIComponent(inviteCode(state))}`
 }
 
 /** Accepte un lien d'invitation complet ou le code seul (les anciens codes « secret.codeAccès » restent valides). */
