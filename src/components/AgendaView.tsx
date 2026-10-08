@@ -12,20 +12,78 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { activeNotes } from '../lib/db'
-import { byTime, fmt, occursOn, relativeDay, toKey } from '../lib/dates'
+import { byTime, fmt, nextOccurrence, occursOn, relativeDay, toKey } from '../lib/dates'
 import { useToday } from '../lib/today'
+import type { Note } from '../lib/types'
 import { NoteCard } from './NoteCard'
+import { Section } from './Section'
+
+export type AgendaMode = 'calendar' | 'list'
 
 interface Props {
+  mode: AgendaMode
+  onMode: (m: AgendaMode) => void
   selected: Date
   onSelect: (d: Date) => void
   onOpen: (id: string) => void
 }
 
-export function AgendaView({ selected, onSelect, onOpen }: Props) {
-  const [month, setMonth] = useState(() => startOfMonth(selected))
+export function AgendaView({ mode, onMode, ...props }: Props) {
   const notes = useLiveQuery(activeNotes, [])
   const dated = useMemo(() => (notes ?? []).filter((n) => n.date), [notes])
+
+  return (
+    <section className="view">
+      <div className="segmented agenda__mode" role="radiogroup" aria-label="Affichage">
+        <button role="radio" aria-checked={mode === 'calendar'} className={mode === 'calendar' ? 'on' : ''} onClick={() => onMode('calendar')}>
+          Calendrier
+        </button>
+        <button role="radio" aria-checked={mode === 'list'} className={mode === 'list' ? 'on' : ''} onClick={() => onMode('list')}>
+          Toutes les dates
+        </button>
+      </div>
+      {mode === 'calendar' ? <CalendarMode dated={dated} {...props} /> : <ListMode dated={dated} onOpen={props.onOpen} />}
+    </section>
+  )
+}
+
+/** Toutes les notes datées : à venir (par prochaine occurrence), puis passées (les plus récentes d'abord). */
+function ListMode({ dated, onOpen }: { dated: Note[]; onOpen: (id: string) => void }) {
+  const today = useToday()
+  const { upcoming, past } = useMemo(() => {
+    const withNext = dated.map((note) => ({ note, next: nextOccurrence(note, today) }))
+    return {
+      upcoming: withNext
+        .filter((x) => x.next)
+        .sort((a, b) => a.next!.getTime() - b.next!.getTime() || byTime(a.note, b.note))
+        .map((x) => x.note),
+      past: withNext
+        .filter((x) => !x.next)
+        .map((x) => x.note)
+        .sort((a, b) => b.date!.localeCompare(a.date!) || byTime(a, b)),
+    }
+  }, [dated, today])
+
+  if (dated.length === 0) return <p className="empty">Aucune note datée pour l’instant.<br />Touchez + pour ajouter quelque chose.</p>
+
+  return (
+    <>
+      {upcoming.length > 0 && (
+        <Section title="À venir">
+          {upcoming.map((n) => <NoteCard key={n.id} note={n} onOpen={onOpen} />)}
+        </Section>
+      )}
+      {past.length > 0 && (
+        <Section title="Passées">
+          {past.map((n) => <NoteCard key={n.id} note={n} onOpen={onOpen} />)}
+        </Section>
+      )}
+    </>
+  )
+}
+
+function CalendarMode({ dated, selected, onSelect, onOpen }: Omit<Props, 'mode' | 'onMode'> & { dated: Note[] }) {
+  const [month, setMonth] = useState(() => startOfMonth(selected))
   const today = useToday()
   const touchX = useRef<number | null>(null)
 
@@ -63,7 +121,7 @@ export function AgendaView({ selected, onSelect, onOpen }: Props) {
   const isOnToday = isSameDay(selected, today) && isSameMonth(month, today)
 
   return (
-    <section className="view">
+    <>
       <div
         className="cal"
         onTouchStart={(e) => (touchX.current = e.touches[0].clientX)}
@@ -120,6 +178,6 @@ export function AgendaView({ selected, onSelect, onOpen }: Props) {
           ))}
         </div>
       )}
-    </section>
+    </>
   )
 }

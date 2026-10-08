@@ -8,8 +8,8 @@ import { NoteCard } from './NoteCard'
 import { Section } from './Section'
 
 export function NotesView({ onOpen }: { onOpen: (id: string) => void }) {
-  // La liste de courses a son propre onglet.
-  const notes = useLiveQuery(async () => (await activeNotes()).filter((n) => !isShoppingList(n)), [])
+  // La liste de courses a son propre onglet, les notes datées sont dans l'agenda.
+  const notes = useLiveQuery(async () => (await activeNotes()).filter((n) => !n.date && !isShoppingList(n)), [])
   const [query, setQuery] = useState('')
   const [tag, setTag] = useState<string | null>(null)
   const [sharedOnly, setSharedOnly] = useState(false)

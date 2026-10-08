@@ -1,6 +1,6 @@
 import { CalendarDays, NotebookPen, Plus, Settings, ShoppingCart, Sparkles, Sun } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { AgendaView } from './components/AgendaView'
+import { AgendaView, type AgendaMode } from './components/AgendaView'
 import { InstallHint, InstallSheet } from './components/InstallHint'
 import { NoteEditor } from './components/NoteEditor'
 import { NotesView } from './components/NotesView'
@@ -38,6 +38,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>(() => (location.hash.startsWith('#rejoindre=') ? 'settings' : 'today'))
   const [overlay, setOverlay] = useState<Overlay>(null)
   const [selectedDay, setSelectedDay] = useState(() => new Date())
+  const [agendaMode, setAgendaMode] = useState<AgendaMode>('calendar')
   useReminderSync()
   useSpaceSync()
 
@@ -96,7 +97,9 @@ export default function App() {
         <main>
           {tab === 'today' && <TodayView onOpen={open} onCreate={create} onCapture={capture} onOpenShopping={() => switchTab('shopping')} />}
           {tab === 'notes' && <NotesView onOpen={open} />}
-          {tab === 'agenda' && <AgendaView selected={selectedDay} onSelect={setSelectedDay} onOpen={open} />}
+          {tab === 'agenda' && (
+            <AgendaView mode={agendaMode} onMode={setAgendaMode} selected={selectedDay} onSelect={setSelectedDay} onOpen={open} />
+          )}
           {tab === 'shopping' && <ShoppingView onOpenSettings={() => switchTab('settings')} />}
           {tab === 'settings' && <SettingsView />}
         </main>
