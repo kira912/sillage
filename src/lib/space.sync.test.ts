@@ -3,6 +3,7 @@ import { Redis } from '@upstash/redis'
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { POST as spaceHandler } from '../../api/space'
+import { SHOPPING_ID } from './shopping'
 
 /**
  * Synchronisation de bout en bout entre deux « téléphones » : chacun a ses propres modules (état, base
@@ -100,6 +101,27 @@ describe('synchronisation de l’espace partagé', () => {
     const copy = (await b.db.notes.toArray()).find((n) => n.id !== list.id)
     expect(copy).toMatchObject({ title: 'Courses dimanche (version en conflit)' })
     expect(copy?.shared).toBeFalsy()
+  })
+
+  it('partage les listes de courses faites avant l’espace, en réunissant leurs articles', async () => {
+    const a = await makeClient()
+    // Liste gardée d'un espace quitté : explicitement non partagée.
+    await a.db.notes.add(a.newNote({ id: SHOPPING_ID, title: 'Courses', body: '- [ ] lait', shared: false }))
+    await a.space.createSpace('Famille', 'Alice')
+    await settle(a)
+    expect((await a.db.notes.get(SHOPPING_ID))?.shared).toBe(true)
+
+    const b = await makeClient()
+    await b.db.notes.add(b.newNote({ id: SHOPPING_ID, title: 'Courses', body: '- [ ] pain' }))
+    await b.space.joinSpace(a.space.getSpace()!.secret, 'Bob')
+    await settle(b)
+    await settle(a)
+
+    for (const c of [a, b]) {
+      const list = await c.db.notes.get(SHOPPING_ID)
+      expect(list?.shared).toBe(true)
+      expect(list?.body.split('\n').sort()).toEqual(['- [ ] lait', '- [ ] pain'])
+    }
   })
 
   it('transmet un gros espace en plusieurs envois et plusieurs pages', async () => {

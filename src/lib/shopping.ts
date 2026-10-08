@@ -124,13 +124,13 @@ export function mergeLists(local: string, remote: string): string {
  * La note
  * ---------------------------------------------------------------------------------------------- */
 
-/** Crée la liste si besoin (ou la sort de la corbeille), partagée dès qu'il y a un espace. */
+/** Crée la liste si besoin (ou la sort de la corbeille), toujours partagée quand il y a un espace. */
 async function ensureList(): Promise<Note> {
   const existing = await db.notes.get(SHOPPING_ID)
   const shared = getSpace() ? true : undefined
   if (existing && !existing.deletedAt && (existing.shared || !shared)) return existing
   const note: Note = existing
-    ? { ...existing, deletedAt: undefined, shared: existing.shared ?? shared }
+    ? { ...existing, deletedAt: undefined, shared: shared ?? existing.shared }
     : newNote({ id: SHOPPING_ID, title: 'Courses', tags: ['courses'], shared })
   await db.notes.put(note)
   return note

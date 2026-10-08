@@ -7,6 +7,8 @@ const MAX_CHANGES = 200
 /** Taille visée d'une page de changements : la réponse doit rester sous la limite de Vercel (4,5 Mo). */
 const MAX_RESPONSE_BYTES = 3_000_000
 const ID_RE = /^[A-Za-z0-9_-]{8,100}$/
+/** Identifiant de note : aléatoire, sauf celui, fixe et plus court, de la liste de courses (« courses »). */
+const NOTE_ID_RE = /^[A-Za-z0-9_-]{1,100}$/
 /** Identifiant d'espace : empreinte SHA-256 (hex) du code d'invitation, calculée sur le téléphone. */
 const SPACE_RE = /^[a-f0-9]{64}$/
 
@@ -81,7 +83,7 @@ export const POST = guard(async (request: Request) => {
       let full = false
       // Écritures une par une : chacune est un compare-and-set sur sa propre version.
       for (const c of changes as { id?: unknown; baseRev?: unknown; blob?: unknown }[]) {
-        if (typeof c?.id !== 'string' || !ID_RE.test(c.id)) continue
+        if (typeof c?.id !== 'string' || !NOTE_ID_RE.test(c.id)) continue
         const baseRev = Number.isInteger(c.baseRev) ? (c.baseRev as number) : 0
         const blob = c.blob === null ? null : isBlob(c.blob) ? c.blob : undefined
         if (blob === undefined) {

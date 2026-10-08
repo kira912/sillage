@@ -285,6 +285,14 @@ async function runSync(mode: SyncMode) {
   if (!s || !navigator.onLine) return
   const key = await keyFor(s.secret)
 
+  // La liste de courses est toujours celle de l'espace, même faite avant de le rejoindre ou gardée d'un espace
+  // quitté depuis. Si l'espace a déjà la sienne, l'envoi est refusé et les deux listes sont réunies (applyEntry).
+  await db.notes
+    .where('id')
+    .equals(SHOPPING_ID)
+    .and((n) => !n.shared && !n.deletedAt)
+    .modify({ shared: true })
+
   // 1. Ce qui a changé ici depuis la dernière synchronisation, dans la limite d'un envoi.
   const [notes, metas] = await Promise.all([db.notes.toArray(), db.sync.toArray()])
   const metaById = new Map(metas.map((m) => [m.id, m]))
