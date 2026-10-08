@@ -1,4 +1,4 @@
-import { api } from './api'
+import { api, type Quota } from './api'
 import { db, newNote } from './db'
 import { toKey } from './dates'
 import { plainText } from './richtext'
@@ -95,7 +95,7 @@ export function reconcile(recipes: Recipe[], listNames: string[]): Recipe[] {
 /** Article tel qu'envoyé à l'IA, avec sa quantité : « œufs (×6) », « farine (500 g) ». */
 const describeItem = (item: Item) => (item.qty !== undefined ? `${item.name} (${describeQty(item)})` : item.name)
 
-export async function fetchIdeas(items: Item[], wish: string, signal?: AbortSignal): Promise<Saved> {
+export async function fetchIdeas(items: Item[], wish: string, signal?: AbortSignal): Promise<{ ideas: Saved; quota?: Quota }> {
   const names = items.map((i) => i.name)
   // Idées déjà proposées et recettes gardées : l'IA doit en trouver de nouvelles.
   const kept = await db.notes
@@ -113,7 +113,7 @@ export async function fetchIdeas(items: Item[], wish: string, signal?: AbortSign
     ]),
   ].filter(Boolean)
 
-  const { recipes } = await api<{ recipes: Recipe[] }>('recipes', {
+  const { recipes, quota } = await api<{ recipes: Recipe[]; quota?: Quota }>('recipes', {
     body: { items: items.map(describeItem), wish, today: toKey(new Date()), avoid },
     timeoutMs: 90_000,
     signal,
@@ -121,7 +121,7 @@ export async function fetchIdeas(items: Item[], wish: string, signal?: AbortSign
   const saved = { listKey: listKeyOf(names), wish, recipes: reconcile(recipes, names) }
   write(KEY, saved)
   write(WISH_KEY, wish)
-  return saved
+  return { ideas: saved, quota }
 }
 
 const ingredientLine = (i: Ingredient) => (i.quantity ? `${i.quantity} ${i.name}` : i.name)

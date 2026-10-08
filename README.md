@@ -85,8 +85,8 @@ Variables d'environnement à définir dans Vercel → *Settings → Environment 
 
 | Variable | Rôle |
 | --- | --- |
-| `SILLAGE_ACCESS_CODE` | Code partagé, saisi une fois dans Réglages sur chaque téléphone. Protège l'IA et les rappels (pas l'espace partagé). Choisir un code long et aléatoire (20 caractères ou plus) : après 10 essais erronés, une adresse IP est bloquée 15 min. |
-| `ANTHROPIC_API_KEY` | Clé API pour la saisie rapide. `SILLAGE_MODEL` (optionnel) change de modèle. |
+| `SILLAGE_ACCESS_CODE` | Code facultatif, saisi dans Réglages : l'IA sans quota. Sans code, l'IA est gratuite avec un petit quota par téléphone et par jour, plafonné pour l'ensemble des utilisateurs gratuits ; les rappels et l'espace partagé n'en ont pas besoin. Choisir un code long et aléatoire (20 caractères ou plus) : après 10 essais erronés, une adresse IP est bloquée 15 min. |
+| `ANTHROPIC_API_KEY` | Clé API pour l'IA. `SILLAGE_MODEL` (optionnel) change de modèle ; `SILLAGE_FREE_MODEL` (optionnel) choisit celui de l'offre gratuite. |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Clés des notifications : `pnpm dlx web-push generate-vapid-keys`. Ne plus les changer ensuite (sinon réabonnement). |
 | `CRON_SECRET` | Secret du déclencheur d'envoi des rappels. |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Redis : posées automatiquement en ajoutant l'intégration **Upstash Redis** (Vercel → *Storage*). |

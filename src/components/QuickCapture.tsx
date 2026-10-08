@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { Bell, CalendarDays, ChevronLeft, ListChecks, Mic, Repeat, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { ApiError, api, getAccessCode } from '../lib/api'
+import { ApiError, api, type Quota } from '../lib/api'
 import { CHECK_RE, checklistProgress } from '../lib/checklist'
 import { activeNotes, db, newNote } from '../lib/db'
 import { describeRecurrence, describeReminder, fromKey, relativeDay, toKey } from '../lib/dates'
@@ -39,34 +39,40 @@ export function QuickCapture({ initialText = '', onClose, onOpenSettings }: Prop
   const [selected, setSelected] = useState<boolean[]>([])
   const notes = useLiveQuery(activeNotes, [])
   const toast = useToast()
-  const hasCode = !!getAccessCode()
+  /** Quota gratuit restant (sans code d'accès). */
+  const [quota, setQuota] = useState<Quota | null>(null)
+  /** Quota épuisé : on propose de saisir un code d'accès. */
+  const [outOfQuota, setOutOfQuota] = useState(false)
   // Analyse en cours annulée si l'écran est fermé.
   const request = useRef<AbortController | null>(null)
   useEffect(() => () => request.current?.abort(), [])
   useEffect(() => {
-    if (initialText.trim() && hasCode) void analyze()
+    if (initialText.trim()) void analyze()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function analyze() {
     setLoading(true)
     setErrorMsg('')
+    setOutOfQuota(false)
     // Contrôleur propre à cet appel : un appel annulé ne doit pas toucher à l'état d'un appel plus récent.
     const controller = new AbortController()
     request.current?.abort()
     request.current = controller
     try {
       const tags = [...new Set((notes ?? []).flatMap((n) => n.tags))]
-      const { notes: result } = await api<{ notes: Draft[] }>('parse', {
+      const { notes: result, quota } = await api<{ notes: Draft[]; quota?: Quota }>('parse', {
         body: { text, today: toKey(new Date()), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, tags },
         timeoutMs: 60_000,
         signal: controller.signal,
       })
+      setQuota(quota ?? null)
       if (!result.length) setErrorMsg('Rien à noter n’a été trouvé dans ce texte.')
       setDrafts(result.length ? result : null)
       setSelected(result.map(() => true))
     } catch (e) {
       if (controller.signal.aborted) return
+      setOutOfQuota(e instanceof ApiError && e.status === 429)
       setErrorMsg(e instanceof ApiError && e.status === 401 ? 'Code d’accès invalide : vérifiez-le dans les réglages.' : (e as Error).message)
     } finally {
       if (!controller.signal.aborted) setLoading(false)
@@ -110,17 +116,7 @@ export function QuickCapture({ initialText = '', onClose, onOpenSettings }: Prop
           <Sparkles size={22} /> Analyse
         </h1>
 
-        {!hasCode ? (
-          <div className="group">
-            <div className="row-block capture__notice">
-              <p>
-                La saisie rapide utilise l’IA via le serveur de Sillage. Entrez d’abord le code d’accès dans les
-                réglages.
-              </p>
-              <button className="btn btn--primary" onClick={onOpenSettings}>Ouvrir les réglages</button>
-            </div>
-          </div>
-        ) : !drafts ? (
+        {!drafts ? (
           <>
             <textarea
               className="capture__input"
@@ -136,6 +132,9 @@ export function QuickCapture({ initialText = '', onClose, onOpenSettings }: Prop
               fois ? L’IA crée une note pour chacune, avec sa date.
             </p>
             {errorMsg && <p className="capture__error">{errorMsg}</p>}
+            {outOfQuota && (
+              <button className="btn btn--small" onClick={onOpenSettings}>Entrer un code d’accès</button>
+            )}
             <button className="btn btn--primary btn--block" disabled={!text.trim() || loading} onClick={analyze}>
               {loading ? <span className="spinner" /> : <Sparkles size={18} />}
               {loading ? 'Analyse…' : 'Analyser'}
@@ -154,6 +153,11 @@ export function QuickCapture({ initialText = '', onClose, onOpenSettings }: Prop
         ) : (
           <>
             <p className="muted">Vérifiez avant d’ajouter. Vous pourrez modifier chaque note ensuite.</p>
+            {quota && (
+              <p className="footnote">
+                Analyse gratuite : {quota.remaining > 0 ? `encore ${quota.remaining} sur ${quota.limit} aujourd’hui.` : 'c’était la dernière d’aujourd’hui.'}
+              </p>
+            )}
             <div className="list">
               {drafts.map((d, i) => (
                 <DraftCard

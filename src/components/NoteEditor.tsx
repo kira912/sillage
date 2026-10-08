@@ -21,7 +21,6 @@ import {
   X,
 } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
-import { getAccessCode } from '../lib/api'
 import { checklistProgress, removeChecked, uncheckAll } from '../lib/checklist'
 import { activeNotes, db, duplicateNote, isEmptyNote, newNote, restoreNote, trashNote } from '../lib/db'
 import { WEEKDAYS_SHORT, WEEK_ORDER, describeReminder, fmt, fromKey, relativeDay, toKey } from '../lib/dates'
@@ -232,7 +231,7 @@ export function NoteEditor({ id, defaults, onClose, onReplace, onAnalyze }: Prop
   }
 
   const reminderOptions = draft.time ? REMINDERS_TIMED : REMINDERS_ALLDAY
-  const canAnalyze = !id && !!getAccessCode() && !!(draft.title.trim() || draft.body.trim())
+  const canAnalyze = !id && !!(draft.title.trim() || draft.body.trim())
   const [unitOne, unitMany] = rec ? FREQ_UNITS[rec.freq] : ['', '']
 
   return (

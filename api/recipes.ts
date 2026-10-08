@@ -1,9 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { checkAccess } from './_lib/auth.js'
+import { aiAccess, refusalFallback } from './_lib/ai-access.js'
 import { error, guard, json, readJson } from './_lib/http.js'
-import { clientIp, rateLimit } from './_lib/rate-limit.js'
 
-const MODEL = process.env.SILLAGE_MODEL || 'claude-opus-5-5'
 const MAX_ITEMS = 150
 const MAX_ITEM_LENGTH = 80
 const MAX_WISH = 200
@@ -11,9 +9,8 @@ const MAX_AVOID = 40
 const MAX_RECIPES = 6
 const MAX_MISSING = 3
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
-/** Plafonds de coût, même avec un code d'accès valide (code fuité, boucle côté client…). */
-const MAX_CALLS_PER_IP_PER_HOUR = 20
-const MAX_CALLS_PER_DAY = 200
+/** Garde-fous de coût avec le code d'accès, et petit quota gratuit sans code (voir _lib/ai-access.ts). */
+const LIMITS = { label: 'recherches de recettes', perIpHour: 20, perDay: 200, freePerDevice: 2, freePerDay: 40 }
 
 const SYSTEM_PROMPT = `A family plans its groceries in a notes app. Looking at their shopping list, they want ideas for what to cook in the coming days with what they are buying, and to know when one or two extra items would make a good dish possible. Reply with JSON matching the schema; write everything in French.
 
@@ -130,12 +127,9 @@ interface RecipesRequest {
 let client: Anthropic | undefined
 
 export const POST = guard(async (request: Request) => {
-  const denied = await checkAccess(request)
-  if (denied) return denied
   if (!process.env.ANTHROPIC_API_KEY) return error(503, 'IA non configurée (ANTHROPIC_API_KEY manquante)')
-  if (!(await rateLimit(`recipes:${clientIp(request)}`, MAX_CALLS_PER_IP_PER_HOUR, 3600)))
-    return error(429, 'Trop de demandes, réessayez dans une heure')
-  if (!(await rateLimit('recipes', MAX_CALLS_PER_DAY, 24 * 3600))) return error(429, 'Limite quotidienne atteinte, réessayez demain')
+  const access = await aiAccess(request, 'recipes', LIMITS)
+  if (access instanceof Response) return access
 
   const input = await readJson<RecipesRequest>(request)
   const items = strings(input?.items, MAX_ITEMS + 1, MAX_ITEM_LENGTH)
@@ -149,13 +143,12 @@ export const POST = guard(async (request: Request) => {
   try {
     client ??= new Anthropic()
     const response = await client.beta.messages.create({
-      model: MODEL,
+      model: access.model,
       max_tokens: 16000,
       system: SYSTEM_PROMPT,
       output_config: { effort: 'low', format: { type: 'json_schema', schema: RECIPES_SCHEMA } },
       // Si un filtre de sécurité refuse la requête, l'API la relance sur le modèle de repli recommandé.
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
+      ...refusalFallback(access.model),
       messages: [
         {
           role: 'user',
@@ -180,7 +173,7 @@ export const POST = guard(async (request: Request) => {
     const textBlock = response.content.find((b) => b.type === 'text')
     if (!textBlock || textBlock.type !== 'text') return error(502, 'Réponse vide du modèle')
 
-    return json({ recipes: sanitizeRecipes(JSON.parse(textBlock.text)) })
+    return json({ recipes: sanitizeRecipes(JSON.parse(textBlock.text)), quota: access.quota })
   } catch (e) {
     if (e instanceof Anthropic.RateLimitError) return error(429, 'Trop de demandes, réessayez dans un instant.')
     if (e instanceof Anthropic.AuthenticationError) return error(503, 'Clé API Anthropic invalide côté serveur.')

@@ -1,11 +1,13 @@
-import { checkAccess } from './_lib/auth.js'
 import { error, guard, json, readJson } from './_lib/http.js'
 import { isSubscription, pushConfigured, sendPush } from './_lib/push.js'
+import { clientIp, rateLimit } from './_lib/rate-limit.js'
 import { deviceId, getStore, type Reminder } from './_lib/store.js'
 
 const MAX_REMINDERS = 500
 /** Un peu plus que l'horizon du téléphone (60 jours), pour absorber les écarts d'horloge. */
 const HORIZON_MS = 62 * 24 * 3600 * 1000
+/** Rappels ouverts à tous : envois de listes limités par adresse IP (un téléphone en envoie à chaque modification). */
+const MAX_SYNCS_PER_IP_PER_HOUR = 240
 
 interface SyncRequest {
   subscription?: unknown
@@ -35,8 +37,7 @@ function cleanReminders(raw: unknown, now: number): Reminder[] {
  * Les notes elles-mêmes restent sur le téléphone : seuls titre, heure et courte description transitent.
  */
 export const PUT = guard(async (request: Request) => {
-  const denied = await checkAccess(request)
-  if (denied) return denied
+  if (!(await rateLimit(`reminders:${clientIp(request)}`, MAX_SYNCS_PER_IP_PER_HOUR, 3600))) return error(429, 'Trop de demandes, réessayez plus tard')
   if (!pushConfigured()) return error(503, 'Notifications non configurées sur le serveur (clés VAPID)')
 
   const input = await readJson<SyncRequest>(request, 256_000)
@@ -61,8 +62,7 @@ export const PUT = guard(async (request: Request) => {
 
 /** Désactivation des notifications sur un appareil. */
 export const DELETE = guard(async (request: Request) => {
-  const denied = await checkAccess(request)
-  if (denied) return denied
+  if (!(await rateLimit(`reminders:${clientIp(request)}`, MAX_SYNCS_PER_IP_PER_HOUR, 3600))) return error(429, 'Trop de demandes, réessayez plus tard')
   const input = await readJson<SyncRequest>(request)
   if (!isSubscription(input?.subscription)) return error(400, 'Abonnement push invalide')
   await getStore().removeDevice(deviceId(input.subscription.endpoint))

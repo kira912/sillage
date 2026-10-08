@@ -28,13 +28,12 @@ export function AssistantSettings() {
   }
 
   useEffect(() => {
-    if (getAccessCode()) check()
+    check()
   }, [])
 
   function saveCode() {
     setAccessCode(code.trim())
-    if (code.trim()) check()
-    else setStatus({ state: 'idle' })
+    check()
   }
 
   async function run(action: () => Promise<void>, success: string) {
@@ -58,63 +57,69 @@ export function AssistantSettings() {
       <h2 className="section__title">Assistant & rappels</h2>
       <div className="group">
         <div className="row">
-          <span className="row__icon"><KeyRound size={18} /></span>
-          <input
-            className="row__input row__input--left"
-            placeholder="Code d’accès"
-            value={code}
-            autoCapitalize="none"
-            autoComplete="off"
-            onChange={(e) => setCode(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && saveCode()}
-          />
-          {!codeSaved && (
-            <button className="btn btn--small" onClick={saveCode}>Enregistrer</button>
+          <span className="row__icon"><Sparkles size={18} /></span>
+          <span className="row__label row__label--grow row__label--stack">
+            Analyse et idées de recettes
+            <small className="muted">L’IA range un texte en notes datées, ou propose des plats avec la liste de courses.</small>
+          </span>
+          <AiValue status={status} />
+        </div>
+        <div className="row">
+          <span className="row__icon"><Bell size={18} /></span>
+          <span className="row__label row__label--grow">Rappels par notification</span>
+          {support === 'needs-install' ? (
+            <span className="row__value muted">Installer d’abord</span>
+          ) : support === 'unsupported' ? (
+            <span className="row__value muted">Non supportés ici</span>
+          ) : !config?.push ? (
+            <StatusValue status={status} ok={false} />
+          ) : pushOn ? (
+            <button className="btn btn--small" disabled={busy} onClick={() => run(disablePush, 'Rappels par notification désactivés')}>
+              <BellOff size={14} /> Désactiver
+            </button>
+          ) : (
+            <button className="btn btn--small" disabled={busy} onClick={() => run(enablePush, 'Notification de test envoyée')}>
+              Activer
+            </button>
           )}
         </div>
-        {status.state !== 'idle' && (
-          <div className="row">
-            <span className="row__icon"><Sparkles size={18} /></span>
-            <span className="row__label row__label--grow">Analyse IA</span>
-            <StatusValue status={status} ok={!!config?.ai} />
-          </div>
-        )}
-        {status.state !== 'idle' && (
-          <div className="row">
-            <span className="row__icon"><Bell size={18} /></span>
-            <span className="row__label row__label--grow">Notifications</span>
-            {support === 'needs-install' ? (
-              <span className="row__value muted">Installer d’abord</span>
-            ) : support === 'unsupported' ? (
-              <span className="row__value muted">Non supportées ici</span>
-            ) : !config?.push ? (
-              <StatusValue status={status} ok={false} />
-            ) : pushOn ? (
-              <button className="btn btn--small" disabled={busy} onClick={() => run(disablePush, 'Notifications désactivées')}>
-                <BellOff size={14} /> Désactiver
-              </button>
-            ) : (
-              <button className="btn btn--small" disabled={busy} onClick={() => run(enablePush, 'Notification de test envoyée')}>
-                Activer
-              </button>
-            )}
-          </div>
-        )}
-        {config?.push && pushOn && (
+        {config?.access && config.push && pushOn && (
           <div className="row">
             <span className="row__icon"><Clock size={18} /></span>
             <span className="row__label row__label--grow">Envoi des rappels</span>
             <CronValue lastRun={config.cronLastRun} />
           </div>
         )}
+        <div className="row">
+          <span className="row__icon"><KeyRound size={18} /></span>
+          <input
+            className="row__input row__input--left"
+            placeholder="Code d’accès (facultatif)"
+            aria-label="Code d’accès (facultatif)"
+            value={code}
+            autoCapitalize="none"
+            autoComplete="off"
+            onChange={(e) => setCode(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && saveCode()}
+          />
+          {!codeSaved && (code.trim() || getAccessCode()) && (
+            <button className="btn btn--small" onClick={saveCode}>Enregistrer</button>
+          )}
+        </div>
       </div>
       <p className="footnote">
         {support === 'needs-install'
           ? 'Sur iPhone, les notifications ne sont possibles que pour l’app installée sur l’écran d’accueil (Partager → Sur l’écran d’accueil).'
-          : 'Le texte saisi est envoyé à l’IA pour être analysé. Pour les rappels, le titre, la date et le lieu des notes concernées sont transmis au serveur, en clair, y compris pour les notes partagées ; le reste ne quitte pas le téléphone.'}
+          : 'Sans code d’accès, l’IA est gratuite dans la limite de quelques usages par jour ; avec un code, sans limite. Le texte analysé est envoyé à l’IA. Pour les rappels, le titre, la date et le lieu des notes concernées sont transmis au serveur, en clair, y compris pour les notes partagées ; le reste ne quitte pas le téléphone.'}
       </p>
     </>
   )
+}
+
+function AiValue({ status }: { status: Status }) {
+  if (status.state !== 'ok') return <StatusValue status={status} ok={false} />
+  if (!status.config.ai) return <span className="row__value muted">Non configurée</span>
+  return status.config.access ? <span className="row__value ok">Sans limite</span> : <span className="row__value muted">Gratuit, quota par jour</span>
 }
 
 function StatusValue({ status, ok }: { status: Status; ok: boolean }) {

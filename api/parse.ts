@@ -1,14 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { checkAccess } from './_lib/auth.js'
+import { aiAccess, refusalFallback } from './_lib/ai-access.js'
 import { error, guard, json, readJson } from './_lib/http.js'
 import { NOTES_SCHEMA, sanitizeNotes } from './_lib/notes.js'
-import { clientIp, rateLimit } from './_lib/rate-limit.js'
 
-const MODEL = process.env.SILLAGE_MODEL || 'claude-opus-5-5'
 const MAX_INPUT = 2000
-/** Plafonds de coût, même avec un code d'accès valide (code fuité, boucle côté client…). */
-const MAX_CALLS_PER_IP_PER_HOUR = 30
-const MAX_CALLS_PER_DAY = 500
+/** Garde-fous de coût avec le code d'accès, et petit quota gratuit sans code (voir _lib/ai-access.ts). */
+const LIMITS = { label: 'analyses', perIpHour: 30, perDay: 500, freePerDevice: 5, freePerDay: 150 }
 
 const SYSTEM_PROMPT = `You turn short French notes, typed or dictated on a phone, into structured entries for a personal notes and agenda app. Reply with JSON matching the schema; all text you write must be in French.
 
@@ -33,12 +30,9 @@ interface ParseRequest {
 let client: Anthropic | undefined
 
 export const POST = guard(async (request: Request) => {
-  const denied = await checkAccess(request)
-  if (denied) return denied
-  if (!process.env.ANTHROPIC_API_KEY) return error(503, 'Saisie IA non configurée (ANTHROPIC_API_KEY manquante)')
-  if (!(await rateLimit(`parse:${clientIp(request)}`, MAX_CALLS_PER_IP_PER_HOUR, 3600)))
-    return error(429, 'Trop de demandes, réessayez dans une heure')
-  if (!(await rateLimit('parse', MAX_CALLS_PER_DAY, 24 * 3600))) return error(429, 'Limite quotidienne atteinte, réessayez demain')
+  if (!process.env.ANTHROPIC_API_KEY) return error(503, 'IA non configurée (ANTHROPIC_API_KEY manquante)')
+  const access = await aiAccess(request, 'parse', LIMITS)
+  if (access instanceof Response) return access
 
   const input = await readJson<ParseRequest>(request)
   const text = typeof input?.text === 'string' ? input.text.trim() : ''
@@ -55,13 +49,12 @@ export const POST = guard(async (request: Request) => {
   try {
     client ??= new Anthropic()
     const response = await client.beta.messages.create({
-      model: MODEL,
+      model: access.model,
       max_tokens: 16000,
       system: SYSTEM_PROMPT,
       output_config: { effort: 'low', format: { type: 'json_schema', schema: NOTES_SCHEMA } },
       // Si un filtre de sécurité refuse la requête, l'API la relance sur le modèle de repli recommandé.
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
+      ...refusalFallback(access.model),
       messages: [
         {
           role: 'user',
@@ -84,7 +77,7 @@ export const POST = guard(async (request: Request) => {
     if (!textBlock || textBlock.type !== 'text') return error(502, 'Réponse vide du modèle')
 
     const notes = sanitizeNotes(JSON.parse(textBlock.text))
-    return json({ notes })
+    return json({ notes, quota: access.quota })
   } catch (e) {
     if (e instanceof Anthropic.RateLimitError) return error(429, 'Trop de demandes, réessayez dans un instant.')
     if (e instanceof Anthropic.AuthenticationError) return error(503, 'Clé API Anthropic invalide côté serveur.')

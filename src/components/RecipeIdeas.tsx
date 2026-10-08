@@ -1,6 +1,6 @@
 import { BookmarkPlus, Check, ChefHat, ChevronDown, ChevronUp, Clock, Plus, RefreshCw, Sparkles } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { ApiError, getAccessCode } from '../lib/api'
+import { ApiError, type Quota } from '../lib/api'
 import { fetchIdeas, keepRecipe, listKeyOf, onList, savedIdeas, savedWish, type Ingredient, type Recipe } from '../lib/recipes'
 import { addToList, itemKey, type Item } from '../lib/shopping'
 import { useToast } from './Toast'
@@ -13,6 +13,8 @@ export function RecipeIdeas({ items, onOpenSettings }: { items: Item[]; onOpenSe
   const [ideas, setIdeas] = useState(savedIdeas)
   const [wish, setWish] = useState(savedWish)
   const [loading, setLoading] = useState(false)
+  const [quota, setQuota] = useState<Quota | null>(null)
+  const [outOfQuota, setOutOfQuota] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const request = useRef<AbortController | null>(null)
   useEffect(() => () => request.current?.abort(), [])
@@ -26,30 +28,21 @@ export function RecipeIdeas({ items, onOpenSettings }: { items: Item[]; onOpenSe
   async function search() {
     setLoading(true)
     setErrorMsg('')
+    setOutOfQuota(false)
     request.current = new AbortController()
     try {
-      setIdeas(await fetchIdeas(items, wish.trim(), request.current.signal))
+      const result = await fetchIdeas(items, wish.trim(), request.current.signal)
+      setIdeas(result.ideas)
+      setQuota(result.quota ?? null)
     } catch (e) {
       if (request.current?.signal.aborted) return
+      setOutOfQuota(e instanceof ApiError && e.status === 429)
       setErrorMsg(e instanceof ApiError && e.status === 401 ? 'Code d’accès invalide : vérifiez-le dans les réglages.' : (e as Error).message)
     } finally {
       setLoading(false)
     }
   }
 
-  if (!getAccessCode()) {
-    return (
-      <div className="section">
-        <h2 className="section__title">Idées de recettes</h2>
-        <div className="group">
-          <div className="row-block capture__notice">
-            <p>Les idées de recettes utilisent l’IA via le serveur de Sillage. Entrez d’abord le code d’accès dans les réglages.</p>
-            <button className="btn btn--small" onClick={onOpenSettings}>Ouvrir les réglages</button>
-          </div>
-        </div>
-      </div>
-    )
-  }
 
   // Une recette dont les ingrédients manquants ont tous été ajoutés à la liste devient faisable.
   const stillMissing = (r: Recipe) => missingOf(r).filter((i) => !onList(i.name, listKeys))
@@ -79,6 +72,14 @@ export function RecipeIdeas({ items, onOpenSettings }: { items: Item[]; onOpenSe
             {loading ? 'Recherche…' : ideas ? 'Nouvelles idées' : 'Trouver des recettes'}
           </button>
           {changed && !loading && <p className="footnote recipe__stale">La liste a changé depuis ces idées.</p>}
+          {quota && !loading && (
+            <p className="footnote recipe__stale">
+              Recherche gratuite : {quota.remaining > 0 ? `encore ${quota.remaining} sur ${quota.limit} aujourd’hui.` : 'c’était la dernière d’aujourd’hui.'}
+            </p>
+          )}
+          {outOfQuota && !loading && (
+            <button className="btn btn--small" onClick={onOpenSettings}>Entrer un code d’accès</button>
+          )}
         </div>
       </div>
 

@@ -17,6 +17,31 @@ export function setAccessCode(code: string) {
   }
 }
 
+const DEVICE_KEY = 'sillage:device-id'
+
+/**
+ * Identifiant anonyme de ce téléphone, pour le quota gratuit de l'IA (aucun lien avec la personne).
+ * Tiré au hasard une fois et gardé ; sans stockage disponible, l'adresse IP sert de repli côté serveur.
+ */
+function deviceId(): string {
+  try {
+    let id = localStorage.getItem(DEVICE_KEY)
+    if (!id) {
+      id = crypto.randomUUID().replace(/-/g, '')
+      localStorage.setItem(DEVICE_KEY, id)
+    }
+    return id
+  } catch {
+    return ''
+  }
+}
+
+/** Quota gratuit restant aujourd'hui (réponses de l'IA sans code d'accès). */
+export interface Quota {
+  remaining: number
+  limit: number
+}
+
 export class ApiError extends Error {
   status: number
 
@@ -52,7 +77,7 @@ export async function api<T>(path: string, init: ApiInit = {}): Promise<T> {
     try {
       res = await fetch(`/api/${path}`, {
         method: init.method ?? (init.body ? 'POST' : 'GET'),
-        headers: { 'content-type': 'application/json', 'x-sillage-code': getAccessCode() },
+        headers: { 'content-type': 'application/json', 'x-sillage-code': getAccessCode(), 'x-sillage-device': deviceId() },
         body: init.body ? JSON.stringify(init.body) : undefined,
         signal: controller.signal,
       })
@@ -76,6 +101,8 @@ export interface ServerConfig {
   ai: boolean
   push: boolean
   vapidPublicKey: string | null
+  /** Le code d'accès saisi est valide (IA sans quota). */
+  access: boolean
   /** Dernier passage du cron d'envoi des rappels (ms), `null` s'il n'est jamais passé. */
   cronLastRun: number | null
 }
