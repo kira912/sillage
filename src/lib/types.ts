@@ -8,6 +8,8 @@ export interface Recurrence {
   byWeekday?: number[]
   /** Date de fin incluse, au format yyyy-MM-dd. */
   until?: string
+  /** Une occurrence tombant un samedi ou un dimanche est reportée au lundi (sans effet sur `weekly`, qui choisit ses jours). */
+  weekendToMonday?: true
 }
 
 export const NOTE_COLORS = ['coral', 'sand', 'sage', 'sky', 'lavender', 'rose'] as const

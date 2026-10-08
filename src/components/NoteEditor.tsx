@@ -168,7 +168,7 @@ export function NoteEditor({ id, defaults, onClose, onReplace, onAnalyze }: Prop
   function setFreq(value: string) {
     if (!value) return set({ recurrence: undefined })
     set({
-      recurrence: { freq: value as Freq, interval: rec?.interval ?? 1, until: rec?.until },
+      recurrence: { freq: value as Freq, interval: rec?.interval ?? 1, until: rec?.until, weekendToMonday: rec?.weekendToMonday },
       date: draft!.date ?? toKey(new Date()),
     })
   }
@@ -373,6 +373,20 @@ export function NoteEditor({ id, defaults, onClose, onReplace, onAnalyze }: Prop
                         ))}
                       </div>
                     </div>
+                  )}
+
+                  {rec.freq !== 'weekly' && (
+                    <Row icon={<span />} label="Week-ends">
+                      <Segmented
+                        label="Week-ends"
+                        value={rec.weekendToMonday ? 'monday' : 'keep'}
+                        onChange={(v) => set({ recurrence: { ...rec, weekendToMonday: v === 'monday' || undefined } })}
+                        options={[
+                          ['keep', 'Inclus'],
+                          ['monday', 'Au lundi'],
+                        ]}
+                      />
+                    </Row>
                   )}
 
                   <Row

@@ -21,7 +21,19 @@ export const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0]
 /** Jour du mois à utiliser pour une récurrence mensuelle/annuelle (le 31 → dernier jour du mois). */
 const clampDay = (startDay: number, d: Date) => Math.min(startDay, getDaysInMonth(d))
 
+export const isWeekend = (d: Date) => d.getDay() === 0 || d.getDay() === 6
+
+/** Les week-ends sont reportés au lundi (sans effet sur `weekly`, qui choisit ses jours). */
+const movesWeekends = (r?: Recurrence) => !!r?.weekendToMonday && r.freq !== 'weekly'
+
 export function occursOn(note: Note, day: Date): boolean {
+  if (!movesWeekends(note.recurrence)) return followsRule(note, day)
+  if (isWeekend(day)) return false
+  return followsRule(note, day) || (day.getDay() === 1 && (followsRule(note, addDays(day, -1)) || followsRule(note, addDays(day, -2))))
+}
+
+/** Le jour correspond-il à la règle de répétition, avant report des week-ends ? */
+function followsRule(note: Note, day: Date): boolean {
   if (!note.date) return false
   const start = fromKey(note.date)
   const diff = differenceInCalendarDays(day, start)
@@ -61,7 +73,8 @@ export function nextOccurrence(note: Note, from: Date): Date | null {
     return differenceInCalendarDays(d, from) >= 0 ? d : null
   }
   // Répétition terminée : rien à chercher (sans ce test, on parcourrait 400 jours pour rien à chaque affichage).
-  const until = note.recurrence.until
+  // Une dernière occurrence un week-end tombe le lundi suivant, jusqu'à 2 jours après la fin.
+  const until = note.recurrence.until && (movesWeekends(note.recurrence) ? toKey(addDays(fromKey(note.recurrence.until), 2)) : note.recurrence.until)
   if (until && until < toKey(from)) return null
   const start = fromKey(note.date)
   let day = differenceInCalendarDays(start, from) > 0 ? start : from
@@ -94,6 +107,7 @@ export function describeRecurrence(r: Recurrence): string {
       s = n === 1 ? 'Tous les ans' : `Tous les ${n} ans`
       break
   }
+  if (movesWeekends(r)) s += r.freq === 'daily' && n === 1 ? ', sauf le week-end' : ', reporté au lundi le week-end'
   if (r.until) s += ` jusqu'au ${fmt(fromKey(r.until), 'd MMM yyyy')}`
   return s
 }

@@ -32,6 +32,7 @@ function recurrence(v: unknown): Recurrence | undefined {
     interval,
     ...(byWeekday.length ? { byWeekday } : {}),
     ...(until ? { until } : {}),
+    ...(v.weekendToMonday === true ? { weekendToMonday: true as const } : {}),
   }
 }
 

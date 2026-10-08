@@ -17,6 +17,9 @@ function rrule(note: Note): string | null {
   if (r.freq === 'weekly' && r.byWeekday?.length) parts.push(`BYDAY=${r.byWeekday.map((d) => BYDAY[d]).join(',')}`)
   // Le 31 du mois → dernier jour de chaque mois, comme dans l'app.
   if (r.freq === 'monthly' && note.date && fromKey(note.date).getDate() === 31) parts.push('BYMONTHDAY=-1')
+  // Le report au lundi ne s'écrit pas en iCalendar, sauf chaque jour : les samedis et dimanches s'ajoutent alors
+  // au lundi, qui y est déjà. Ailleurs, le Calendrier garde les occurrences du week-end.
+  if (r.weekendToMonday && r.freq === 'daily' && Math.max(1, r.interval) === 1) parts.push('BYDAY=MO,TU,WE,TH,FR')
   if (r.until) parts.push(`UNTIL=${r.until.replace(/-/g, '')}${note.time ? 'T235959' : ''}`)
   return `RRULE:${parts.join(';')}`
 }
