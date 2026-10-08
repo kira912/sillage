@@ -82,6 +82,7 @@ function StopRow({ stop: { note, dayKey }, onOpen, late }: { stop: Stop; onOpen:
       <button className="stop__open" onClick={() => onOpen(note.id)}>
         {note.unread && <NewBy name={note.editedBy} />}
         <span className="stop__title">{note.title && !isShoppingList(note) ? <RichLine text={note.title} /> : title}</span>
+        {!isShoppingList(note) && <StopDescription body={note.body} />}
         <StopMeta note={note} lateSince={late ? dayKey : undefined} />
       </button>
     </div>
@@ -93,6 +94,37 @@ function StopRow({ stop: { note, dayKey }, onOpen, late }: { stop: Stop; onOpen:
     <SwipeToDelete id={`${note.id}:${dayKey}`} onDelete={() => trash(note)}>
       {row}
     </SwipeToDelete>
+  )
+}
+
+/**
+ * Description complète de la note, avec sa mise en forme et ses cases (pour lecture : on les coche en ouvrant
+ * la note). Au-delà de quelques lignes, elle est coupée ; la note entière s'ouvre d'un toucher.
+ */
+function StopDescription({ body }: { body: string }) {
+  const lines = body.split('\n')
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop()
+  if (!lines.some((l) => l.trim())) return null
+  return (
+    <span className="stop__desc">
+      {lines.map((line, i) => {
+        const m = line.match(CHECK_RE)
+        const done = !!m && m[2].toLowerCase() === 'x'
+        return (
+          <Fragment key={i}>
+            {i > 0 && <br />}
+            {m ? (
+              <span className={done ? 'stop__item stop__item--done' : 'stop__item'}>
+                <span className="sr-only">{done ? 'Fait : ' : 'À faire : '}</span>
+                <RichLine text={m[3]} />
+              </span>
+            ) : (
+              <RichLine text={line} />
+            )}
+          </Fragment>
+        )
+      })}
+    </span>
   )
 }
 
@@ -109,12 +141,7 @@ function StopMeta({ note, lateSince }: { note: Note; lateSince?: string }) {
     }
   } else {
     const progress = checklistProgress(note.body)
-    if (progress.total) {
-      parts.push(<span key="list"><ListChecks size={13} /> {progress.done}/{progress.total}</span>)
-    } else {
-      const firstLine = note.body.split('\n').find((l) => l.trim())
-      if (firstLine) parts.push(<span key="preview" className="stop__preview">{plainText(firstLine.replace(CHECK_RE, '$3'))}</span>)
-    }
+    if (progress.total) parts.push(<span key="list"><ListChecks size={13} /> {progress.done}/{progress.total}</span>)
   }
   if (note.recurrence) parts.push(<span key="rec"><Repeat size={13} /> {describeRecurrence(note.recurrence)}</span>)
   if (note.location) parts.push(<span key="loc"><MapPin size={13} /> {note.location}</span>)

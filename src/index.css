@@ -175,6 +175,18 @@ main { padding-bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 96px
 .stop--done .stop__title { color: var(--ink-2); font-weight: 500; text-decoration: line-through; text-decoration-color: var(--ink-3); }
 .stop__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--space-3); font-size: var(--text-xs); color: var(--ink-2); }
 .stop__meta > span { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.stop__desc {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; line-clamp: 6; overflow: hidden;
+  font-size: var(--text-sm); line-height: 1.4; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+/* Case d'une liste, en lecture : petit carré, coché aux couleurs de la route. */
+.stop__item::before {
+  content: ''; display: inline-block; width: 0.8em; height: 0.8em; margin-right: 0.4em; vertical-align: -0.08em;
+  border: 1.5px solid var(--ink-3); border-radius: 3px; box-sizing: border-box;
+}
+.stop__item--done { color: var(--ink-3); text-decoration-line: line-through; }
+.stop__item--done::before { background: var(--route); border-color: var(--route); }
+.stop--done .stop__desc { color: var(--ink-3); }
 .stop__preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .stop__late { color: var(--warn); font-weight: 600; }
 .stop__count { color: var(--route); font-weight: 600; }
