@@ -12,11 +12,12 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useMemo, useRef, useState } from 'react'
 import { activeNotes } from '../lib/db'
-import { byTime, fmt, nextOccurrence, occursOn, relativeDay, toKey } from '../lib/dates'
-import { useToday } from '../lib/today'
+import { byTime, fmt, fromKey, nextOccurrence, occursOn, relativeDay, toKey } from '../lib/dates'
+import { useMinute, useToday } from '../lib/today'
 import type { Note } from '../lib/types'
-import { NoteCard } from './NoteCard'
 import { Section } from './Section'
+import { Segmented } from './Segmented'
+import { Track, type Stop } from './Track'
 
 export type AgendaMode = 'calendar' | 'list'
 
@@ -34,57 +35,67 @@ export function AgendaView({ mode, onMode, ...props }: Props) {
 
   return (
     <section className="view">
-      <div className="segmented agenda__mode" role="radiogroup" aria-label="Affichage">
-        <button role="radio" aria-checked={mode === 'calendar'} className={mode === 'calendar' ? 'on' : ''} onClick={() => onMode('calendar')}>
-          Calendrier
-        </button>
-        <button role="radio" aria-checked={mode === 'list'} className={mode === 'list' ? 'on' : ''} onClick={() => onMode('list')}>
-          Toutes les dates
-        </button>
-      </div>
+      <Segmented
+        label="Affichage"
+        block
+        value={mode}
+        onChange={onMode}
+        options={[
+          ['calendar', 'Calendrier'],
+          ['list', 'Toutes les dates'],
+        ]}
+      />
       {mode === 'calendar' ? <CalendarMode dated={dated} {...props} /> : <ListMode dated={dated} onOpen={props.onOpen} />}
     </section>
   )
 }
 
-/** Toutes les notes datées : à venir (par prochaine occurrence), puis passées (les plus récentes d'abord). */
+/** Toutes les notes datées, jour par jour : à venir (prochaine occurrence), puis passées (les plus récentes d'abord). */
 function ListMode({ dated, onOpen }: { dated: Note[]; onOpen: (id: string) => void }) {
   const today = useToday()
   const { upcoming, past } = useMemo(() => {
-    const withNext = dated.map((note) => ({ note, next: nextOccurrence(note, today) }))
-    return {
-      upcoming: withNext
-        .filter((x) => x.next)
-        .sort((a, b) => a.next!.getTime() - b.next!.getTime() || byTime(a.note, b.note))
-        .map((x) => x.note),
-      past: withNext
-        .filter((x) => !x.next)
-        .map((x) => x.note)
-        .sort((a, b) => b.date!.localeCompare(a.date!) || byTime(a, b)),
+    const upcoming: Stop[] = []
+    const past: Stop[] = []
+    for (const note of dated) {
+      const next = nextOccurrence(note, today)
+      if (next) upcoming.push({ note, dayKey: toKey(next) })
+      else past.push({ note, dayKey: note.date! })
     }
+    upcoming.sort((a, b) => a.dayKey.localeCompare(b.dayKey) || byTime(a.note, b.note))
+    past.sort((a, b) => b.dayKey.localeCompare(a.dayKey) || byTime(a.note, b.note))
+    return { upcoming: groupByDay(upcoming), past: groupByDay(past) }
   }, [dated, today])
 
-  if (dated.length === 0) return <p className="empty">Aucune note datée pour l’instant.<br />Touchez + pour ajouter quelque chose.</p>
+  if (dated.length === 0) return <p className="empty">Aucune note datée pour l’instant.<br />Touchez + pour en ajouter une.</p>
 
   return (
     <>
-      {upcoming.length > 0 && (
-        <Section title="À venir">
-          {upcoming.map((n) => <NoteCard key={n.id} note={n} onOpen={onOpen} />)}
+      {upcoming.map(([dayKey, stops]) => (
+        <Section key={dayKey} title={relativeDay(fromKey(dayKey), today)} variant="day" bare>
+          <Track stops={stops} onOpen={onOpen} />
         </Section>
-      )}
-      {past.length > 0 && (
-        <Section title="Passées">
-          {past.map((n) => <NoteCard key={n.id} note={n} onOpen={onOpen} />)}
+      ))}
+      {past.length > 0 && <h2 className="section__title">Passées</h2>}
+      {past.map(([dayKey, stops]) => (
+        <Section key={dayKey} title={relativeDay(fromKey(dayKey), today)} variant="day" bare>
+          <Track stops={stops} onOpen={onOpen} />
         </Section>
-      )}
+      ))}
     </>
   )
+}
+
+/** Regroupe par jour des arrêts déjà triés, en gardant leur ordre. */
+function groupByDay(stops: Stop[]): [string, Stop[]][] {
+  const groups = new Map<string, Stop[]>()
+  for (const stop of stops) groups.set(stop.dayKey, [...(groups.get(stop.dayKey) ?? []), stop])
+  return [...groups]
 }
 
 function CalendarMode({ dated, selected, onSelect, onOpen }: Omit<Props, 'mode' | 'onMode'> & { dated: Note[] }) {
   const [month, setMonth] = useState(() => startOfMonth(selected))
   const today = useToday()
+  const now = useMinute()
   const touchX = useRef<number | null>(null)
 
   const days = useMemo(() => {
@@ -128,7 +139,7 @@ function CalendarMode({ dated, selected, onSelect, onOpen }: Omit<Props, 'mode' 
         onTouchEnd={(e) => onTouchEnd(e.changedTouches[0].clientX)}
       >
         <div className="cal__nav">
-          <span className="cal__title">{fmt(month, 'MMMM yyyy')}</span>
+          <h2 className="cal__title chart-title" aria-live="polite">{fmt(month, 'MMMM yyyy')}</h2>
           <div className="cal__buttons">
             {!isOnToday && (
               <button className="btn btn--small" onClick={goToday}>Aujourd’hui</button>
@@ -143,7 +154,7 @@ function CalendarMode({ dated, selected, onSelect, onOpen }: Omit<Props, 'mode' 
         </div>
         <div className="cal__grid">
           {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((d, i) => (
-            <div key={i} className="cal__dow">{d}</div>
+            <div key={i} className="cal__dow" aria-hidden="true">{d}</div>
           ))}
           {days.map((d) => {
             const key = toKey(d)
@@ -157,9 +168,15 @@ function CalendarMode({ dated, selected, onSelect, onOpen }: Omit<Props, 'mode' 
               .filter(Boolean)
               .join(' ')
             return (
-              <button key={key} className={cls} onClick={() => onSelect(d)} aria-label={fmt(d, 'EEEE d MMMM')}>
+              <button
+                key={key}
+                className={cls}
+                onClick={() => onSelect(d)}
+                aria-pressed={isSameDay(d, selected)}
+                aria-label={`${fmt(d, 'EEEE d MMMM')}${count ? `, ${count} note${count > 1 ? 's' : ''}` : ''}`}
+              >
                 <span className="cal__num">{d.getDate()}</span>
-                <span className="cal__dots">
+                <span className="cal__dots" aria-hidden="true">
                   {Array.from({ length: Math.min(count, 3) }, (_, i) => <i key={i} />)}
                 </span>
               </button>
@@ -168,16 +185,17 @@ function CalendarMode({ dated, selected, onSelect, onOpen }: Omit<Props, 'mode' 
         </div>
       </div>
 
-      <h2 className="section__title">{relativeDay(selected, today)}</h2>
-      {dayNotes.length === 0 ? (
-        <p className="empty">Rien de prévu ce jour-là.<br />Touchez + pour ajouter quelque chose.</p>
-      ) : (
-        <div className="list">
-          {dayNotes.map((n) => (
-            <NoteCard key={n.id} note={n} onOpen={onOpen} dayKey={toKey(selected)} />
-          ))}
-        </div>
-      )}
+      <Section title={relativeDay(selected, today)} variant="day" bare>
+        {dayNotes.length === 0 ? (
+          <p className="empty">Rien de prévu ce jour-là.<br />Touchez + pour ajouter quelque chose.</p>
+        ) : (
+          <Track
+            stops={dayNotes.map((n) => ({ note: n, dayKey: toKey(selected) }))}
+            onOpen={onOpen}
+            now={isSameDay(selected, today) ? now : undefined}
+          />
+        )}
+      </Section>
     </>
   )
 }

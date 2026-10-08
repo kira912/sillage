@@ -81,6 +81,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       workbox: {
+        // La police des titres fait partie de l'app : elle doit être là hors ligne.
+        globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         // Gestion des notifications push dans le service worker généré.
         importScripts: ['push-sw.js'],
         navigateFallbackDenylist: [/^\/api\//],
@@ -94,8 +96,8 @@ export default defineConfig({
         start_url: '/',
         scope: '/',
         display: 'standalone',
-        background_color: '#f6f3ee',
-        theme_color: '#f6f3ee',
+        background_color: '#f7f5f6',
+        theme_color: '#f7f5f6',
         icons: [
           { src: 'pwa-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'pwa-512.png', sizes: '512x512', type: 'image/png' },

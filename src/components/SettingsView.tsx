@@ -5,6 +5,7 @@ import { saveBackup } from '../lib/backup'
 import { db, emptyTrash, importJson, importText, restoreNote, trashedNotes } from '../lib/db'
 import { fmt } from '../lib/dates'
 import { AssistantSettings } from './AssistantSettings'
+import { useConfirm } from './Sheet'
 import { InviteCard, SpaceSettings } from './SpaceSettings'
 import { useToast } from './Toast'
 
@@ -15,6 +16,7 @@ export function SettingsView() {
   const [pasted, setPasted] = useState('')
   const [bullets, setBullets] = useState(true)
   const toast = useToast()
+  const confirm = useConfirm()
 
   useEffect(() => {
     navigator.storage?.persisted?.().then(setPersisted)
@@ -35,6 +37,21 @@ export function SettingsView() {
     }
   }
 
+  async function emptyTrashAfterConfirm() {
+    const ok = await confirm({
+      title: 'Vider la corbeille ?',
+      message: `${trash!.length} note${trash!.length > 1 ? 's seront supprimées' : ' sera supprimée'} définitivement.`,
+      confirmLabel: 'Vider la corbeille',
+      danger: true,
+    })
+    if (ok) await emptyTrash()
+  }
+
+  async function deleteForever(id: string, title: string) {
+    const ok = await confirm({ title: `Supprimer « ${title} » ?`, message: 'Elle ne pourra plus être restaurée.', confirmLabel: 'Supprimer définitivement', danger: true })
+    if (ok) await db.notes.delete(id)
+  }
+
   async function doImportText() {
     const n = await importText(pasted, bullets)
     toast(`${n} note(s) créée(s)`)
@@ -46,12 +63,16 @@ export function SettingsView() {
     <section className="view">
       <InviteCard />
 
+      <SpaceSettings />
+
+      <AssistantSettings />
+
       <h2 className="section__title">Mes données</h2>
       <div className="group">
         {persisted === false && (
           <div className="row">
             <span className="row__icon"><ShieldCheck size={18} /></span>
-            <span className="row__label">Protection contre l’effacement</span>
+            <span className="row__label row__label--grow row__label--stack">Protection contre l’effacement</span>
             <button className="btn btn--small" onClick={askPersist}>Activer</button>
           </div>
         )}
@@ -95,10 +116,6 @@ export function SettingsView() {
         Drive).
       </p>
 
-      <SpaceSettings />
-
-      <AssistantSettings />
-
       <h2 className="section__title">Corbeille</h2>
       <div className="group">
         {!trash?.length ? (
@@ -114,12 +131,12 @@ export function SettingsView() {
                 <button className="icon-btn" onClick={() => restoreNote(n.id)} aria-label="Restaurer">
                   <ArchiveRestore size={18} />
                 </button>
-                <button className="icon-btn" onClick={() => db.notes.delete(n.id)} aria-label="Supprimer définitivement">
+                <button className="icon-btn" onClick={() => deleteForever(n.id, n.title || 'Sans titre')} aria-label="Supprimer définitivement">
                   <Trash2 size={18} />
                 </button>
               </div>
             ))}
-            <button className="group__action group__action--danger" onClick={() => confirm('Vider la corbeille ?') && emptyTrash()}>
+            <button className="group__action group__action--danger" onClick={emptyTrashAfterConfirm}>
               <Trash2 size={18} /> Vider la corbeille
             </button>
           </>
@@ -132,6 +149,7 @@ export function SettingsView() {
           Astuces <ChevronRight size={14} className="tips-box__chevron" />
         </summary>
         <ul className="tips">
+          <li>Écrivez plusieurs choses dans une nouvelle note, puis touchez « Analyser » : l’IA en fait des notes séparées, chacune à sa date.</li>
           <li>Glissez une note vers la gauche pour la supprimer (un glissement long la supprime directement).</li>
           <li>Onglet Courses : tapez « lait, 2 baguettes » pour ajouter plusieurs articles ; la liste est rangée par rayon et partagée avec votre espace.</li>
           <li>Dans l’agenda, glissez sur le calendrier pour changer de mois.</li>

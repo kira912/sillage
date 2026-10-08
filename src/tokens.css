@@ -1,0 +1,142 @@
+/*
+ * Système de design de Sillage.
+ * La journée est une route : le magenta (« route ») trace ce qui est fait et marque l'action principale,
+ * le jaune (« balise ») ne signale que l'heure actuelle. Tout le reste est à l'encre, sur du papier.
+ */
+
+@font-face {
+  font-family: 'Newsreader';
+  font-style: italic;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./assets/fonts/newsreader-italic-500.woff2') format('woff2');
+}
+
+:root {
+  /* ---------- Couleurs ---------- */
+  --paper: #f7f5f6;
+  --surface: #ffffff;
+  --sunken: #efebed;
+  --tint: #f6e4ee;
+  --ink: #231b20;
+  --ink-2: #685c63;
+  --ink-3: #958a90;
+  --rule: #e3dde0;
+  --route: #a8216f;
+  --on-route: #ffffff;
+  --route-soft: color-mix(in srgb, var(--route) 10%, transparent);
+  --buoy: #f2b731;
+  --warn: #b42d1f;
+  --on-warn: #ffffff;
+  --ok: #2e7d4f;
+  --scrim: rgb(20 10 16 / 0.42);
+
+  /* Couleurs de notes : fond de carte / pastille */
+  --c-coral: #fbe3da;    --c-coral-dot: #e0704f;
+  --c-sand: #f7ecd0;     --c-sand-dot: #d2a133;
+  --c-sage: #e0eddd;     --c-sage-dot: #5f9c62;
+  --c-sky: #dceaf5;      --c-sky-dot: #4a8ec4;
+  --c-lavender: #e7e1f5; --c-lavender-dot: #8670c6;
+  --c-rose: #f8dfeb;     --c-rose-dot: #cf5f93;
+
+  /* Couleurs du texte mis en forme : lisibles (4,5:1) sur tous les fonds de note, dans les deux thèmes. */
+  --rt-rouge: #b42d1f;
+  --rt-orange: #a14f00;
+  --rt-vert: #256d43;
+  --rt-bleu: #1d5fa3;
+  --rt-violet: #6a45bf;
+  --rt-rose: #a8216f;
+
+  /* ---------- Typographie ---------- */
+  --font-text: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-chart: 'Newsreader', 'Iowan Old Style', 'Palatino', Georgia, serif;
+  /* Échelle d'iOS (11, 13, 15, 17, 20, 22, 28, 34 pt), relative au texte courant : suit la taille de texte de l'iPhone. */
+  --text-2xs: 0.647rem;
+  --text-xs: 0.765rem;
+  --text-sm: 0.882rem;
+  --text-md: 1rem;
+  --text-lg: 1.176rem;
+  --text-xl: 1.294rem;
+  --text-2xl: 1.647rem;
+  --text-3xl: 2rem;
+  --leading-tight: 1.2;
+  --leading: 1.45;
+  --leading-loose: 1.6;
+
+  /* ---------- Espacements (pas de 4) ---------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --gutter: var(--space-4);
+
+  /* ---------- Formes ---------- */
+  --radius-control: 10px;
+  --radius-surface: 14px;
+  --radius-sheet: 22px;
+  --radius-pill: 999px;
+  --hairline: 0.5px solid var(--rule);
+  --tap: 44px;
+
+  /* ---------- Profondeur : seulement pour ce qui flotte ---------- */
+  --shadow-float: 0 6px 20px rgb(60 20 45 / 0.14);
+  --shadow-overlay: 0 12px 40px rgb(30 10 22 / 0.22);
+
+  /* ---------- Mouvement ---------- */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --duration-press: 120ms;
+  --duration-enter: 200ms;
+  --duration-sheet: 280ms;
+
+  /* ---------- Couches ---------- */
+  --z-bar: 5;
+  --z-tabbar: 10;
+  --z-fab: 11;
+  --z-sheet: 20;
+  --z-toast: 30;
+
+  --tabbar-h: 58px;
+  --content-max: 640px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #141012;
+    --surface: #1e181b;
+    --sunken: #282024;
+    --tint: #3a2230;
+    --ink: #f1eaee;
+    --ink-2: #aa9da4;
+    --ink-3: #7c7076;
+    --rule: #33292e;
+    --route: #f27fbc;
+    --on-route: #2a0718;
+    --warn: #f08a7a;
+    --on-warn: #2a0a06;
+    --ok: #7cc493;
+    --scrim: rgb(0 0 0 / 0.55);
+    --shadow-float: 0 6px 20px rgb(0 0 0 / 0.45);
+    --shadow-overlay: 0 12px 40px rgb(0 0 0 / 0.6);
+
+    --rt-rouge: #ff9585;
+    --rt-orange: #f5a862;
+    --rt-vert: #86cf9c;
+    --rt-bleu: #8cbcf0;
+    --rt-violet: #bea8f5;
+    --rt-rose: #f58cc4;
+
+    --c-coral: #3b2520;    --c-coral-dot: #e8795a;
+    --c-sand: #362d1d;     --c-sand-dot: #d9a93a;
+    --c-sage: #22301f;     --c-sage-dot: #7ab57a;
+    --c-sky: #1d2a36;      --c-sky-dot: #5fa3d8;
+    --c-lavender: #2a2437; --c-lavender-dot: #9c86d9;
+    --c-rose: #3a2130;     --c-rose-dot: #e07aa5;
+  }
+}
+
+@media (min-width: 700px) {
+  :root { --gutter: var(--space-5); }
+}

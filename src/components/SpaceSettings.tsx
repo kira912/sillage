@@ -16,6 +16,7 @@ import {
   type SpaceState,
 } from '../lib/space'
 import { isIos, isStandalone } from '../lib/platform'
+import { useConfirm } from './Sheet'
 import { useToast } from './Toast'
 
 /** Code reçu via un lien `#rejoindre=…` (ouvert dans le navigateur). */
@@ -295,6 +296,7 @@ function SpaceDetails({ space }: { space: SpaceState }) {
   const [syncing, setSyncing] = useState(false)
   const [showCode, setShowCode] = useState(false)
   const toast = useToast()
+  const confirm = useConfirm()
   const notes = useLiveQuery(() => db.notes.filter((n) => !n.deletedAt).toArray(), [])
 
   // Notes existantes portant une étiquette partagée mais pas encore partagées.
@@ -345,7 +347,13 @@ function SpaceDetails({ space }: { space: SpaceState }) {
   }
 
   async function leave() {
-    if (!confirm(`Quitter l’espace « ${space.name} » ? Les notes partagées resteront sur ce téléphone, en notes personnelles.`)) return
+    const ok = await confirm({
+      title: `Quitter « ${space.name} » ?`,
+      message: 'Les notes partagées resteront sur ce téléphone, en notes personnelles. Les autres membres les gardent aussi.',
+      confirmLabel: 'Quitter l’espace',
+      danger: true,
+    })
+    if (!ok) return
     await leaveSpace()
     toast('Espace quitté')
   }

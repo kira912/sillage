@@ -1,6 +1,7 @@
 import { api } from './api'
 import { db, newNote } from './db'
 import { toKey } from './dates'
+import { plainText } from './richtext'
 import { describeQty, itemKey, type Item } from './shopping'
 import { shouldAutoShare } from './space'
 
@@ -108,7 +109,7 @@ export async function fetchIdeas(items: Item[], wish: string, signal?: AbortSign
       ...kept
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .slice(0, MAX_KEPT_SENT)
-        .map((n) => n.title),
+        .map((n) => plainText(n.title)),
     ]),
   ].filter(Boolean)
 

@@ -7,27 +7,34 @@ import {
   Clock,
   Copy,
   Flag,
-  ListChecks,
   ListRestart,
   MapPin,
   Minus,
   MoreHorizontal,
-  Palette,
   Pin,
   Plus,
   Repeat,
+  Sparkles,
   Tag,
   Trash2,
   Users,
   X,
 } from 'lucide-react'
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { getAccessCode } from '../lib/api'
 import { checklistProgress, removeChecked, uncheckAll } from '../lib/checklist'
 import { activeNotes, db, duplicateNote, isEmptyNote, newNote, restoreNote, trashNote } from '../lib/db'
 import { WEEKDAYS_SHORT, WEEK_ORDER, describeReminder, fmt, fromKey, relativeDay, toKey } from '../lib/dates'
 import { addToCalendar } from '../lib/ics'
 import { shouldAutoShare, useSpace } from '../lib/space'
-import { NOTE_COLORS, type Freq, type Note } from '../lib/types'
+import { plainText } from '../lib/richtext'
+import { isShoppingList } from '../lib/shopping'
+import { NOTE_COLORS, type Freq, type Note, type NoteColor } from '../lib/types'
+import { Picker, Row, SelectPicker } from './Fields'
+import { FormatBar } from './FormatBar'
+import { RichField, type RichFieldHandle } from './RichField'
+import { Segmented } from './Segmented'
+import { Sheet, SheetItem } from './Sheet'
 import { useToast } from './Toast'
 
 interface Props {
@@ -37,6 +44,8 @@ interface Props {
   onClose: () => void
   /** Ouvre une autre note à la place de celle-ci (après duplication). */
   onReplace: (id: string) => void
+  /** Nouvelle note : confie le texte à l'IA, qui en tire une ou plusieurs notes datées. */
+  onAnalyze: (text: string) => void
 }
 
 const FREQ_LABELS: Record<Freq, string> = {
@@ -51,17 +60,30 @@ const FREQ_UNITS: Record<Freq, [string, string]> = {
   monthly: ['mois', 'mois'],
   yearly: ['an', 'ans'],
 }
+const COLOR_LABELS: Record<NoteColor, string> = {
+  coral: 'Corail',
+  sand: 'Sable',
+  sage: 'Sauge',
+  sky: 'Ciel',
+  lavender: 'Lavande',
+  rose: 'Rose',
+}
 const REMINDERS_TIMED = [0, 10, 30, 60, 120, 1440]
 const REMINDERS_ALLDAY = [0, 1440]
 
 const normalizeTag = (t: string) => t.replace(/^#/, '').trim().toLowerCase()
 
-export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
+export function NoteEditor({ id, defaults, onClose, onReplace, onAnalyze }: Props) {
   const [draft, setDraft] = useState<Note | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [tagInput, setTagInput] = useState('')
-  const bodyRef = useRef<HTMLTextAreaElement>(null)
+  const titleRef = useRef<RichFieldHandle>(null)
+  const bodyRef = useRef<RichFieldHandle>(null)
+  /** Champ visé par la barre de mise en forme : le dernier touché. */
+  const [formatting, setFormatting] = useState<'title' | 'body'>('body')
   const latest = useRef<Note | null>(null)
+  /** Date à l'ouverture : si elle apparaît ou disparaît, la note change d'onglet, et on le dit. */
+  const initialDate = useRef<string | undefined>(undefined)
   const deleted = useRef(false)
   /** Vrai dès que l'utilisateur modifie la note : seulement alors on enregistre. */
   const dirty = useRef(false)
@@ -73,7 +95,9 @@ export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
     let cancelled = false
     ;(async () => {
       const n = (id && (await db.notes.get(id))) || newNote({ ...defaults, shared: shouldAutoShare(defaults?.tags ?? []) || undefined })
-      if (!cancelled) setDraft(n)
+      if (cancelled) return
+      initialDate.current = n.date
+      setDraft(n)
     })()
     return () => {
       cancelled = true
@@ -90,7 +114,18 @@ export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
     return () => clearTimeout(t)
   }, [draft])
 
-  useEffect(() => () => void (dirty.current && latest.current && persist(latest.current)), [])
+  useEffect(
+    () => () => {
+      const n = latest.current
+      if (!dirty.current || !n) return
+      persist(n)
+      if (deleted.current || isEmptyNote(n) || isShoppingList(n)) return
+      if (n.date && !initialDate.current) toast('Note rangée dans l’agenda')
+      else if (!n.date && initialDate.current) toast('Note rangée dans Notes')
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
 
   // Note partagée modifiée par l'autre personne pendant qu'elle est ouverte ici (sans modification locale) :
   // on affiche la nouvelle version.
@@ -98,14 +133,6 @@ export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
   useEffect(() => {
     if (stored && !dirty.current && !deleted.current) setDraft(stored)
   }, [stored])
-
-  // La zone de texte grandit avec son contenu.
-  useLayoutEffect(() => {
-    const el = bodyRef.current
-    if (!el) return
-    el.style.height = 'auto'
-    el.style.height = `${el.scrollHeight}px`
-  }, [draft?.body])
 
   function persist(n: Note) {
     if (deleted.current) return
@@ -164,38 +191,6 @@ export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
     }
   }
 
-  function insertChecklist() {
-    const el = bodyRef.current
-    const body = draft!.body
-    const pos = el?.selectionStart ?? body.length
-    const prefix = pos > 0 && body[pos - 1] !== '\n' ? '\n- [ ] ' : '- [ ] '
-    set({ body: body.slice(0, pos) + prefix + body.slice(pos) })
-    requestAnimationFrame(() => {
-      el?.focus()
-      el?.setSelectionRange(pos + prefix.length, pos + prefix.length)
-    })
-  }
-
-  // Entrée sur une ligne « - [ ] … » continue la liste ; sur une ligne vide de liste, on en sort.
-  function onBodyKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key !== 'Enter' || e.shiftKey) return
-    const el = e.currentTarget
-    const pos = el.selectionStart
-    const body = draft!.body
-    const lineStart = body.lastIndexOf('\n', pos - 1) + 1
-    const m = body.slice(lineStart, pos).match(/^(\s*)- \[[ x]\] ?(.*)$/i)
-    if (!m) return
-    e.preventDefault()
-    if (!m[2].trim()) {
-      set({ body: body.slice(0, lineStart) + body.slice(pos) })
-      requestAnimationFrame(() => el.setSelectionRange(lineStart, lineStart))
-      return
-    }
-    const insert = `\n${m[1]}- [ ] `
-    set({ body: body.slice(0, pos) + insert + body.slice(pos) })
-    requestAnimationFrame(() => el.setSelectionRange(pos + insert.length, pos + insert.length))
-  }
-
   async function remove() {
     const noteId = draft!.id
     deleted.current = true
@@ -218,11 +213,19 @@ export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
   }
 
   function exportToCalendar() {
-    setMenuOpen(false)
     addToCalendar(draft!)
   }
 
+  // Le brouillon vide n'est pas gardé : l'analyse crée elle-même les notes.
+  async function analyze() {
+    const text = [draft!.title, draft!.body].map(plainText).filter((t) => t.trim()).join('\n')
+    deleted.current = true
+    await db.notes.delete(draft!.id)
+    onAnalyze(text)
+  }
+
   const reminderOptions = draft.time ? REMINDERS_TIMED : REMINDERS_ALLDAY
+  const canAnalyze = !id && !!getAccessCode() && !!(draft.title.trim() || draft.body.trim())
   const [unitOne, unitMany] = rec ? FREQ_UNITS[rec.freq] : ['', '']
 
   return (
@@ -232,78 +235,76 @@ export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
           <ChevronLeft size={22} /> Retour
         </button>
         <div className="editor__actions">
-          <button className="icon-btn" onClick={insertChecklist} aria-label="Ajouter une case à cocher">
-            <ListChecks size={20} />
-          </button>
+          {canAnalyze && (
+            <button className="btn btn--small" onClick={analyze}>
+              <Sparkles size={16} /> Analyser
+            </button>
+          )}
           <button
             className={`icon-btn${draft.pinned ? ' icon-btn--on' : ''}`}
             onClick={() => set({ pinned: !draft.pinned })}
-            aria-label={draft.pinned ? 'Désépingler' : 'Épingler'}
+            aria-label="Épingler"
             aria-pressed={draft.pinned}
           >
             <Pin size={20} />
           </button>
-          <button className="icon-btn" onClick={() => setMenuOpen(!menuOpen)} aria-label="Plus d’actions">
+          <button className="icon-btn" onClick={() => setMenuOpen(true)} aria-label="Plus d’actions" aria-haspopup="dialog">
             <MoreHorizontal size={20} />
           </button>
         </div>
-
+        <FormatBar target={() => (formatting === 'title' ? titleRef : bodyRef).current} field={formatting} />
       </header>
 
-      {menuOpen && (
-        <>
-          <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
-          <div className="menu" role="menu">
-            {draft.date && (
-              <MenuItem icon={<CalendarPlus size={18} />} onClick={exportToCalendar}>
-                Ajouter au Calendrier
-              </MenuItem>
-            )}
-            {progress.done > 0 && (
-              <>
-                <MenuItem icon={<ListRestart size={18} />} onClick={() => (set({ body: uncheckAll(draft.body) }), setMenuOpen(false))}>
-                  Tout décocher
-                </MenuItem>
-                <MenuItem icon={<X size={18} />} onClick={() => (set({ body: removeChecked(draft.body) }), setMenuOpen(false))}>
-                  Retirer les éléments cochés
-                </MenuItem>
-              </>
-            )}
-            {!isEmptyNote(draft) && (
-              <MenuItem icon={<Copy size={18} />} onClick={duplicate}>
-                Dupliquer
-              </MenuItem>
-            )}
-            <MenuItem icon={<Trash2 size={18} />} onClick={remove} danger>
-              Supprimer
-            </MenuItem>
-          </div>
-        </>
-      )}
+      <Sheet open={menuOpen} onClose={() => setMenuOpen(false)} title={plainText(draft.title).trim() || 'Cette note'}>
+        <div className="sheet__list">
+          {progress.done > 0 && (
+            <>
+              <SheetItem icon={<ListRestart size={20} />} onClick={() => (set({ body: uncheckAll(draft.body) }), setMenuOpen(false))}>
+                Tout décocher
+              </SheetItem>
+              <SheetItem icon={<X size={20} />} onClick={() => (set({ body: removeChecked(draft.body) }), setMenuOpen(false))}>
+                Retirer les éléments cochés
+              </SheetItem>
+            </>
+          )}
+          {!isEmptyNote(draft) && (
+            <SheetItem icon={<Copy size={20} />} onClick={duplicate}>
+              Dupliquer
+            </SheetItem>
+          )}
+          <SheetItem icon={<Trash2 size={20} />} onClick={remove} danger>
+            Supprimer
+          </SheetItem>
+        </div>
+      </Sheet>
 
       <div className="editor__content">
-        <input
+        <RichField
+          ref={titleRef}
           className="editor__title"
+          label="Titre"
           placeholder="Titre"
           value={draft.title}
           autoFocus={!id}
-          enterKeyHint="next"
-          onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), bodyRef.current?.focus())}
-          onChange={(e) => set({ title: e.target.value })}
+          onEnter={() => bodyRef.current?.focus()}
+          onActivate={() => setFormatting('title')}
+          onChange={(title) => set({ title })}
         />
-        <textarea
+        <RichField
           ref={bodyRef}
+          multiline
           className="editor__body"
+          label="Texte de la note"
           placeholder="Écrire quelque chose…"
           value={draft.body}
-          rows={6}
-          onKeyDown={onBodyKeyDown}
-          onChange={(e) => set({ body: e.target.value })}
+          onActivate={() => setFormatting('body')}
+          onChange={(body) => set({ body })}
         />
 
         <div className="group">
           <Row icon={<CalendarDays size={18} />} label="Date" onClear={draft.date ? () => setDate('') : undefined}>
             <Picker
+              label="Date"
               type="date"
               value={draft.date ?? ''}
               display={draft.date ? relativeDay(fromKey(draft.date)) : 'Ajouter'}
@@ -315,6 +316,7 @@ export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
             <>
               <Row icon={<Clock size={18} />} label="Heure" onClear={draft.time ? () => set({ time: undefined }) : undefined}>
                 <Picker
+                  label="Heure"
                   type="time"
                   value={draft.time ?? ''}
                   display={draft.time ?? 'Toute la journée'}
@@ -324,6 +326,7 @@ export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
 
               <Row icon={<Repeat size={18} />} label="Répéter">
                 <SelectPicker
+                  label="Répéter"
                   value={rec?.freq ?? ''}
                   display={rec ? FREQ_LABELS[rec.freq] : 'Jamais'}
                   onChange={setFreq}
@@ -372,6 +375,7 @@ export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
                     onClear={rec.until ? () => set({ recurrence: { ...rec, until: undefined } }) : undefined}
                   >
                     <Picker
+                      label="Fin de la répétition"
                       type="date"
                       value={rec.until ?? ''}
                       min={draft.date}
@@ -384,6 +388,7 @@ export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
 
               <Row icon={<Bell size={18} />} label="Rappel">
                 <SelectPicker
+                  label="Rappel"
                   value={draft.reminder === undefined ? '' : String(draft.reminder)}
                   display={draft.reminder === undefined ? 'Aucun' : describeReminder(draft.reminder, !!draft.time)}
                   onChange={(v) => set({ reminder: v === '' ? undefined : Number(v) })}
@@ -409,14 +414,15 @@ export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
                   {draft.shared ? (draft.editedBy ? `Modifiée par ${draft.editedBy}` : 'Visible par tout l’espace') : 'Visible par vous seul·e'}
                 </small>
               </span>
-              <div className="segmented" role="radiogroup" aria-label="Partage">
-                <button role="radio" aria-checked={!draft.shared} className={!draft.shared ? 'on' : ''} onClick={() => set({ shared: undefined })}>
-                  Perso
-                </button>
-                <button role="radio" aria-checked={!!draft.shared} className={draft.shared ? 'on' : ''} onClick={() => set({ shared: true })}>
-                  Partagée
-                </button>
-              </div>
+              <Segmented
+                label="Partage"
+                value={draft.shared ? 'shared' : 'personal'}
+                onChange={(v) => set({ shared: v === 'shared' || undefined })}
+                options={[
+                  ['personal', 'Perso'],
+                  ['shared', 'Partagée'],
+                ]}
+              />
             </div>
           </div>
         )}
@@ -472,20 +478,21 @@ export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
             </div>
           )}
 
-          <div className="row">
-            <span className="row__icon"><Palette size={18} /></span>
-            <div className="swatches">
+          <div className="row-block">
+            <div className="swatches" role="group" aria-label="Couleur">
               <button
                 className={`swatch swatch--none${!draft.color ? ' swatch--on' : ''}`}
                 onClick={() => set({ color: undefined })}
                 aria-label="Sans couleur"
+                aria-pressed={!draft.color}
               />
               {NOTE_COLORS.map((c) => (
                 <button
                   key={c}
                   className={`swatch swatch--${c}${draft.color === c ? ' swatch--on' : ''}`}
                   onClick={() => set({ color: c })}
-                  aria-label={c}
+                  aria-label={COLOR_LABELS[c]}
+                  aria-pressed={draft.color === c}
                 />
               ))}
             </div>
@@ -493,89 +500,5 @@ export function NoteEditor({ id, defaults, onClose, onReplace }: Props) {
         </div>
       </div>
     </div>
-  )
-}
-
-export function Row({ icon, label, children, onClear }: { icon: ReactNode; label: string; children: ReactNode; onClear?: () => void }) {
-  return (
-    <div className="row">
-      <span className="row__icon">{icon}</span>
-      <span className="row__label">{label}</span>
-      <div className="row__value">{children}</div>
-      {onClear && (
-        <button className="row__clear" onClick={onClear} aria-label={`Retirer ${label.toLowerCase()}`}>
-          <X size={16} />
-        </button>
-      )}
-    </div>
-  )
-}
-
-/** Sélecteur natif (roue de l'iPhone) caché sous un libellé lisible. */
-export function Picker({
-  type,
-  value,
-  display,
-  min,
-  onChange,
-}: {
-  type: 'date' | 'time'
-  value: string
-  display: string
-  min?: string
-  onChange: (v: string) => void
-}) {
-  const ref = useRef<HTMLInputElement>(null)
-  return (
-    <span className={`picker${value ? '' : ' picker--empty'}`}>
-      {display}
-      <input
-        ref={ref}
-        className="picker__native"
-        type={type}
-        value={value}
-        min={min}
-        onClick={() => {
-          try {
-            ref.current?.showPicker()
-          } catch {
-            /* showPicker non supporté : le champ natif s'ouvre tout seul */
-          }
-        }}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    </span>
-  )
-}
-
-export function SelectPicker({
-  value,
-  display,
-  options,
-  onChange,
-}: {
-  value: string
-  display: string
-  options: [string, string][]
-  onChange: (v: string) => void
-}) {
-  return (
-    <span className={`picker${value ? '' : ' picker--empty'}`}>
-      {display}
-      <select className="picker__native" value={value} onChange={(e) => onChange(e.target.value)}>
-        {options.map(([v, label]) => (
-          <option key={v} value={v}>{label}</option>
-        ))}
-      </select>
-    </span>
-  )
-}
-
-function MenuItem({ icon, children, onClick, danger }: { icon: ReactNode; children: ReactNode; onClick: () => void; danger?: boolean }) {
-  return (
-    <button className={`menu__item${danger ? ' menu__item--danger' : ''}`} role="menuitem" onClick={onClick}>
-      {icon}
-      {children}
-    </button>
   )
 }

@@ -25,12 +25,14 @@ function isShoppingDraft(d: Draft): boolean {
 }
 
 interface Props {
+  /** Texte écrit dans l'éditeur : l'analyse démarre dès l'ouverture. */
+  initialText?: string
   onClose: () => void
   onOpenSettings: () => void
 }
 
-export function QuickCapture({ onClose, onOpenSettings }: Props) {
-  const [text, setText] = useState('')
+export function QuickCapture({ initialText = '', onClose, onOpenSettings }: Props) {
+  const [text, setText] = useState(initialText)
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const [drafts, setDrafts] = useState<Draft[] | null>(null)
@@ -41,26 +43,33 @@ export function QuickCapture({ onClose, onOpenSettings }: Props) {
   // Analyse en cours annulée si l'écran est fermé.
   const request = useRef<AbortController | null>(null)
   useEffect(() => () => request.current?.abort(), [])
+  useEffect(() => {
+    if (initialText.trim() && hasCode) void analyze()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function analyze() {
     setLoading(true)
     setErrorMsg('')
-    request.current = new AbortController()
+    // Contrôleur propre à cet appel : un appel annulé ne doit pas toucher à l'état d'un appel plus récent.
+    const controller = new AbortController()
+    request.current?.abort()
+    request.current = controller
     try {
       const tags = [...new Set((notes ?? []).flatMap((n) => n.tags))]
       const { notes: result } = await api<{ notes: Draft[] }>('parse', {
         body: { text, today: toKey(new Date()), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, tags },
         timeoutMs: 60_000,
-        signal: request.current.signal,
+        signal: controller.signal,
       })
       if (!result.length) setErrorMsg('Rien à noter n’a été trouvé dans ce texte.')
       setDrafts(result.length ? result : null)
       setSelected(result.map(() => true))
     } catch (e) {
-      if (request.current?.signal.aborted) return
+      if (controller.signal.aborted) return
       setErrorMsg(e instanceof ApiError && e.status === 401 ? 'Code d’accès invalide : vérifiez-le dans les réglages.' : (e as Error).message)
     } finally {
-      setLoading(false)
+      if (!controller.signal.aborted) setLoading(false)
     }
   }
 
@@ -97,8 +106,8 @@ export function QuickCapture({ onClose, onOpenSettings }: Props) {
       </header>
 
       <div className="editor__content">
-        <h1 className="capture__title">
-          <Sparkles size={22} /> Saisie rapide
+        <h1 className="capture__title chart-title">
+          <Sparkles size={22} /> Analyse
         </h1>
 
         {!hasCode ? (
@@ -117,14 +126,14 @@ export function QuickCapture({ onClose, onOpenSettings }: Props) {
               className="capture__input"
               placeholder="Écrivez ou dictez ce qu’il faut retenir…"
               value={text}
-              autoFocus
+              autoFocus={!initialText}
               rows={5}
               maxLength={2000}
               onChange={(e) => setText(e.target.value)}
             />
             <p className="footnote capture__hint">
               <Mic size={14} className="inline-icon" /> Touchez le micro du clavier pour dicter. Plusieurs choses à la
-              fois ? L’IA crée une note pour chacune.
+              fois ? L’IA crée une note pour chacune, avec sa date.
             </p>
             {errorMsg && <p className="capture__error">{errorMsg}</p>}
             <button className="btn btn--primary btn--block" disabled={!text.trim() || loading} onClick={analyze}>

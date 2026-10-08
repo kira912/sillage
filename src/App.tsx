@@ -1,4 +1,4 @@
-import { CalendarDays, NotebookPen, Plus, Settings, ShoppingCart, Sparkles, Sun } from 'lucide-react'
+import { CalendarDays, NotebookPen, Plus, Settings, ShoppingCart, Sun } from 'lucide-react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AgendaView, type AgendaMode } from './components/AgendaView'
 import { InstallHint, InstallSheet } from './components/InstallHint'
@@ -10,15 +10,16 @@ import { ShoppingView } from './components/ShoppingView'
 import { PasteInviteBanner } from './components/SpaceSettings'
 import { TodayView } from './components/TodayView'
 import { onNotesChanged, purgeOldTrash } from './lib/db'
-import { toKey } from './lib/dates'
+import { fmt, toKey } from './lib/dates'
 import { isPushEnabled, syncReminders } from './lib/push'
 import { SHOPPING_ID } from './lib/shopping'
 import { getSpace, pollDelay, syncSpace } from './lib/space'
+import { useToday } from './lib/today'
 import type { Note } from './lib/types'
 
 type Tab = 'today' | 'notes' | 'agenda' | 'shopping' | 'settings'
 type EditorState = { id: string | null; defaults?: Partial<Note> } | null
-type Overlay = { kind: 'editor'; state: NonNullable<EditorState> } | { kind: 'capture' } | null
+type Overlay = { kind: 'editor'; state: NonNullable<EditorState> } | { kind: 'capture'; text: string } | null
 
 const TABS = [
   { id: 'today', label: 'Aujourd’hui', icon: Sun },
@@ -28,9 +29,9 @@ const TABS = [
   { id: 'settings', label: 'Réglages', icon: Settings },
 ] as const
 
-const TITLES: Record<Tab, string> = { today: 'Aujourd’hui', notes: 'Notes', agenda: 'Agenda', shopping: 'Courses', settings: 'Réglages' }
+const TITLES: Record<Exclude<Tab, 'today'>, string> = { notes: 'Notes', agenda: 'Agenda', shopping: 'Courses', settings: 'Réglages' }
 
-/** Onglets sans saisie rapide ni bouton « nouvelle note ». */
+/** Onglets sans bouton « nouvelle note ». */
 const NO_CREATE: Tab[] = ['shopping', 'settings']
 
 export default function App() {
@@ -38,6 +39,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>(() => (location.hash.startsWith('#rejoindre=') ? 'settings' : 'today'))
   const [overlay, setOverlay] = useState<Overlay>(null)
   const [selectedDay, setSelectedDay] = useState(() => new Date())
+  const today = useToday()
   const [agendaMode, setAgendaMode] = useState<AgendaMode>('calendar')
   useReminderSync()
   useSpaceSync()
@@ -72,7 +74,6 @@ export default function App() {
   const open = (id: string) => (id === SHOPPING_ID ? switchTab('shopping') : openOverlay({ kind: 'editor', state: { id } }))
   const create = () =>
     openOverlay({ kind: 'editor', state: { id: null, defaults: tab === 'agenda' ? { date: toKey(selectedDay) } : {} } })
-  const capture = () => openOverlay({ kind: 'capture' })
 
   function switchTab(next: Tab) {
     setTab(next)
@@ -85,17 +86,13 @@ export default function App() {
       {/* Les onglets restent montés sous l'éditeur : recherche, filtres et défilement sont conservés. */}
       <div className="app" style={overlay ? { display: 'none' } : undefined}>
         <header className="topbar">
-          <h1>{TITLES[tab]}</h1>
-          {!NO_CREATE.includes(tab) && (
-            <button className="icon-btn topbar__action" onClick={capture} aria-label="Saisie rapide">
-              <Sparkles size={22} />
-            </button>
-          )}
+          {/* Sur Aujourd'hui, le titre est le nom du jour. */}
+          <h1 className="chart-title">{tab === 'today' ? fmt(today, 'EEEE d MMMM') : TITLES[tab]}</h1>
         </header>
         {tab === 'today' && <InstallHint />}
         {tab === 'today' && <PasteInviteBanner onFound={() => switchTab('settings')} />}
         <main>
-          {tab === 'today' && <TodayView onOpen={open} onCreate={create} onCapture={capture} onOpenShopping={() => switchTab('shopping')} />}
+          {tab === 'today' && <TodayView onOpen={open} onCreate={create} onOpenShopping={() => switchTab('shopping')} />}
           {tab === 'notes' && <NotesView onOpen={open} />}
           {tab === 'agenda' && (
             <AgendaView mode={agendaMode} onMode={setAgendaMode} selected={selectedDay} onSelect={setSelectedDay} onOpen={open} />
@@ -132,6 +129,7 @@ export default function App() {
             defaults={overlay.state.defaults}
             onClose={() => history.back()}
             onReplace={(id) => setOverlay({ kind: 'editor', state: { id } })}
+            onAnalyze={(text) => setOverlay({ kind: 'capture', text })}
           />
         </div>
       )}
@@ -139,6 +137,7 @@ export default function App() {
       {overlay?.kind === 'capture' && (
         <div className="app">
           <QuickCapture
+            initialText={overlay.text}
             onClose={() => history.back()}
             onOpenSettings={() => {
               history.back()

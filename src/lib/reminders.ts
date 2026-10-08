@@ -1,5 +1,6 @@
 import { addDays, startOfDay } from 'date-fns'
 import { fmt, occursOn, toKey } from './dates'
+import { plainText } from './richtext'
 import type { Note } from './types'
 
 export interface ScheduledReminder {
@@ -51,7 +52,7 @@ export function computeReminders(notes: Note[], now = new Date()): ScheduledRemi
       if (note.doneDates.includes(key)) continue
       const at = reminderTime(note, day)
       if (!at || at <= now || at.getTime() > now.getTime() + HORIZON_DAYS * 86_400_000) continue
-      out.push({ id: `${note.id}:${key}`, at: at.getTime(), title: note.title || 'Rappel', body: describe(note, day, now) })
+      out.push({ id: `${note.id}:${key}`, at: at.getTime(), title: plainText(note.title) || 'Rappel', body: describe(note, day, now) })
     }
   }
   return out.sort((a, b) => a.at - b.at).slice(0, MAX_REMINDERS)

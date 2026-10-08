@@ -4,6 +4,7 @@ import { db, newId, newNote } from './db'
 import { mergeNotes } from './merge'
 import { SHOPPING_ID, mergeLists } from './shopping'
 import { sanitizeNote } from './note-schema'
+import { plainText } from './richtext'
 import { SECRET_RE, decryptJson, encryptJson, generateSecret, keyFor, spaceIdFor } from './space-crypto'
 import type { Note, SharedNote } from './types'
 
@@ -386,7 +387,7 @@ async function runSync(mode: SyncMode) {
   if (res.full) throw new Error('Espace plein : supprimez des notes partagées pour en ajouter d’autres')
   const blocked = [...tooLarge].flatMap(([id, fp]) => {
     const n = noteById.get(id)
-    return n?.shared && fingerprint(n) === fp ? [n.title || 'Sans titre'] : []
+    return n?.shared && fingerprint(n) === fp ? [plainText(n.title) || 'Sans titre'] : []
   })
   if (blocked.length) throw new Error(`Trop longue pour être partagée : « ${blocked.join(' », « ')} »`)
 }

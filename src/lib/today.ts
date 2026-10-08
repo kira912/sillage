@@ -1,4 +1,4 @@
-import { startOfDay } from 'date-fns'
+import { format, startOfDay } from 'date-fns'
 import { useSyncExternalStore } from 'react'
 
 /*
@@ -8,19 +8,25 @@ import { useSyncExternalStore } from 'react'
  */
 
 let today = startOfDay(new Date())
+/** Heure actuelle (HH:mm), pour situer « maintenant » dans la journée. */
+let minute = format(new Date(), 'HH:mm')
 const listeners = new Set<() => void>()
 let timer: ReturnType<typeof setInterval> | undefined
 
 function check() {
-  const now = startOfDay(new Date())
-  if (now.getTime() === today.getTime()) return
-  today = now
+  const date = new Date()
+  const day = startOfDay(date)
+  const hm = format(date, 'HH:mm')
+  if (day.getTime() === today.getTime() && hm === minute) return
+  // Même objet tant que le jour ne change pas : les calculs qui dépendent de `today` ne sont pas refaits chaque minute.
+  if (day.getTime() !== today.getTime()) today = day
+  minute = hm
   listeners.forEach((l) => l())
 }
 
 function subscribe(listener: () => void) {
   if (!listeners.size) {
-    timer = setInterval(check, 60_000)
+    timer = setInterval(check, 30_000)
     document.addEventListener('visibilitychange', check)
   }
   listeners.add(listener)
@@ -35,4 +41,8 @@ function subscribe(listener: () => void) {
 
 export function useToday(): Date {
   return useSyncExternalStore(subscribe, () => today)
+}
+
+export function useMinute(): string {
+  return useSyncExternalStore(subscribe, () => minute)
 }

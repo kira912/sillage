@@ -19,7 +19,7 @@ import {
 } from '../lib/shopping'
 import { useSpace } from '../lib/space'
 import type { Note } from '../lib/types'
-import { Picker, Row, SelectPicker } from './NoteEditor'
+import { Picker, Row, SelectPicker } from './Fields'
 import { RecipeIdeas } from './RecipeIdeas'
 import { useToast } from './Toast'
 
@@ -151,6 +151,7 @@ export function ShoppingView({ onOpenSettings }: { onOpenSettings: () => void })
           <div className="group">
             <Row icon={<CalendarDays size={18} />} label="Quand" onClear={note.date ? () => edit(() => ({ date: undefined, time: undefined, reminder: undefined })) : undefined}>
               <Picker
+                label="Date des courses"
                 type="date"
                 value={note.date ?? ''}
                 display={note.date ? relativeDay(fromKey(note.date)) : 'Ajouter'}
@@ -161,6 +162,7 @@ export function ShoppingView({ onOpenSettings }: { onOpenSettings: () => void })
               <>
                 <Row icon={<Clock size={18} />} label="Heure" onClear={note.time ? () => edit(() => ({ time: undefined })) : undefined}>
                   <Picker
+                    label="Heure des courses"
                     type="time"
                     value={note.time ?? ''}
                     display={note.time ?? 'Toute la journée'}
@@ -169,6 +171,7 @@ export function ShoppingView({ onOpenSettings }: { onOpenSettings: () => void })
                 </Row>
                 <Row icon={<Bell size={18} />} label="Rappel">
                   <SelectPicker
+                    label="Rappel"
                     value={note.reminder === undefined ? '' : String(note.reminder)}
                     display={note.reminder === undefined ? 'Aucun' : describeReminder(note.reminder, !!note.time)}
                     onChange={(v) => edit(() => ({ reminder: v === '' ? undefined : Number(v) }))}
@@ -217,12 +220,12 @@ function ItemRow({ item, onToggle, onQty, onRemove }: ItemRowProps) {
       {!item.checked && onQty && onRemove && (
         <div className="stepper stepper--small">
           {count !== null && count > 1 ? (
-            <button onClick={() => onQty(count - 1 > 1 ? count - 1 : undefined)} aria-label="Moins"><Minus size={15} /></button>
+            <button onClick={() => onQty(count - 1 > 1 ? count - 1 : undefined)} aria-label={`${item.name} : un de moins`}><Minus size={15} /></button>
           ) : (
             <button onClick={onRemove} aria-label={`Retirer ${item.name}`}><Trash2 size={15} /></button>
           )}
           {count !== null && <span>{count}</span>}
-          {count !== null && <button onClick={() => onQty(count + 1)} aria-label="Plus"><Plus size={15} /></button>}
+          {count !== null && <button onClick={() => onQty(count + 1)} aria-label={`${item.name} : un de plus`}><Plus size={15} /></button>}
         </div>
       )}
     </div>

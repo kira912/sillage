@@ -1,5 +1,6 @@
 import { addDays, addHours, format } from 'date-fns'
 import { fromKey } from './dates'
+import { plainText } from './richtext'
 import type { Note } from './types'
 
 const BYDAY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA']
@@ -37,14 +38,14 @@ export function noteToIcs(note: Note): string {
 
   const rule = rrule(note)
   if (rule) lines.push(rule)
-  lines.push(fold(`SUMMARY:${escape(note.title || 'Note')}`))
-  if (note.body.trim()) lines.push(fold(`DESCRIPTION:${escape(note.body)}`))
+  lines.push(fold(`SUMMARY:${escape(plainText(note.title) || 'Note')}`))
+  if (note.body.trim()) lines.push(fold(`DESCRIPTION:${escape(plainText(note.body))}`))
   if (note.location) lines.push(fold(`LOCATION:${escape(note.location)}`))
 
   if (note.reminder !== undefined) {
     // Sans heure, le rappel est calculé depuis minuit : on le place la veille au soir / le matin même.
     const trigger = note.time ? `-PT${note.reminder}M` : note.reminder >= 1440 ? '-PT6H' : 'PT9H'
-    lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', `TRIGGER:${trigger}`, fold(`DESCRIPTION:${escape(note.title || 'Rappel')}`), 'END:VALARM')
+    lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', `TRIGGER:${trigger}`, fold(`DESCRIPTION:${escape(plainText(note.title) || 'Rappel')}`), 'END:VALARM')
   }
 
   lines.push('END:VEVENT', 'END:VCALENDAR')
@@ -52,7 +53,7 @@ export function noteToIcs(note: Note): string {
 }
 
 export async function addToCalendar(note: Note) {
-  const name = `${(note.title || 'evenement').replace(/[^\p{L}\p{N} _-]/gu, '').slice(0, 40) || 'evenement'}.ics`
+  const name = `${(plainText(note.title) || 'evenement').replace(/[^\p{L}\p{N} _-]/gu, '').slice(0, 40) || 'evenement'}.ics`
   const file = new File([noteToIcs(note)], name, { type: 'text/calendar' })
 
   // Sur iPhone, ouvrir un .ics propose directement « Ajouter au calendrier ».

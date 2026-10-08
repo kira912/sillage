@@ -75,7 +75,7 @@ export function AssistantSettings() {
         {status.state !== 'idle' && (
           <div className="row">
             <span className="row__icon"><Sparkles size={18} /></span>
-            <span className="row__label row__label--grow">Saisie rapide IA</span>
+            <span className="row__label row__label--grow">Analyse IA</span>
             <StatusValue status={status} ok={!!config?.ai} />
           </div>
         )}

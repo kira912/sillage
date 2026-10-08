@@ -37,7 +37,7 @@ interface ApiInit {
 
 /** Appel aux fonctions serveur (`/api/*`) avec le code d'accès de l'appareil. */
 export async function api<T>(path: string, init: ApiInit = {}): Promise<T> {
-  if (!navigator.onLine) throw new ApiError('Pas de connexion internet', 0)
+  if (!navigator.onLine) throw new ApiError('Pas de connexion internet. Réessayez quand le réseau revient.', 0)
   // AbortController plutôt qu'AbortSignal.any (absent avant iOS 17.4).
   const controller = new AbortController()
   let timedOut = false
@@ -58,13 +58,13 @@ export async function api<T>(path: string, init: ApiInit = {}): Promise<T> {
       })
     } catch (e) {
       if (init.signal?.aborted) throw e
-      throw new ApiError(timedOut ? 'Le serveur met trop de temps à répondre' : 'Serveur injoignable', 0)
+      throw new ApiError(timedOut ? 'Le serveur met trop de temps à répondre. Réessayez dans un instant.' : 'Serveur injoignable. Vérifiez la connexion et réessayez.', 0)
     }
     const data = await res.json().catch(() => {
-      if (controller.signal.aborted) throw new ApiError('Le serveur met trop de temps à répondre', 0)
+      if (controller.signal.aborted) throw new ApiError('Le serveur met trop de temps à répondre. Réessayez dans un instant.', 0)
       return null
     })
-    if (!res.ok) throw new ApiError(data?.error ?? `Erreur ${res.status}`, res.status)
+    if (!res.ok) throw new ApiError(data?.error ?? `Le serveur a renvoyé une erreur (${res.status}). Réessayez dans un instant.`, res.status)
     return data as T
   } finally {
     clearTimeout(timer)
