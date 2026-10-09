@@ -38,8 +38,8 @@ export function NoteCard({ note, onOpen }: Props) {
         {note.unread && <NewBy name={note.editedBy} />}
         <div className="card__head">
           <h3 className="card__titles">
-            <button className="card__open card__title" onClick={() => onOpen(note.id)}>
-              {note.title ? <RichLine text={note.title} /> : <span className="muted">Sans titre</span>}
+            <button className="card__open card__title" onClick={() => onOpen(note.id)} aria-label={note.title ? undefined : 'Ouvrir la note'}>
+              {note.title && <RichLine text={note.title} />}
             </button>
           </h3>
           {note.shared && <Users size={15} className="card__shared" role="img" aria-label="Partagée" aria-hidden={false} />}

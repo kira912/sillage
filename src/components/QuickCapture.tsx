@@ -202,7 +202,7 @@ function DraftCard({ draft, checked, onToggle }: { draft: Draft; checked: boolea
               {draft.time ? ` · ${draft.time}` : ''}
             </span>
           )}
-          <h3 className="card__title">{draft.title || 'Sans titre'}</h3>
+          {draft.title && <h3 className="card__title">{draft.title}</h3>}
         </div>
       </div>
       {bodyPreview && <div className="card__body">{bodyPreview}</div>}

@@ -64,10 +64,10 @@ async function showSpaceNotice(data) {
   if (notice && count === 1 && items[0]) {
     const item = items[0]
     title = item.date ? `${by} a ajouté à l’agenda` : `${by} a ajouté une note`
-    body = [item.title || 'Sans titre', item.date ? describeDay(item.date, item.time) : ''].filter(Boolean).join(', ')
+    body = [item.title, item.date ? describeDay(item.date, item.time) : ''].filter(Boolean).join(', ')
   } else if (notice) {
     title = `${by} a ajouté ${count} notes`
-    body = items.map((i) => i.title || 'Sans titre').join(', ') + (count > items.length ? '…' : '')
+    body = items.map((i) => i.title).filter(Boolean).join(', ') + (count > items.length ? '…' : '')
   }
 
   // Pastille de l'icône : le nombre connu de l'app, plus ce qui arrive (l'app le corrige à sa prochaine ouverture).

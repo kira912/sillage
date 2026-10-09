@@ -48,7 +48,7 @@ export function SettingsView() {
   }
 
   async function deleteForever(id: string, title: string) {
-    const ok = await confirm({ title: `Supprimer « ${title} » ?`, message: 'Elle ne pourra plus être restaurée.', confirmLabel: 'Supprimer définitivement', danger: true })
+    const ok = await confirm({ title: title ? `Supprimer « ${title} » ?` : 'Supprimer cette note ?', message: 'Elle ne pourra plus être restaurée.', confirmLabel: 'Supprimer définitivement', danger: true })
     if (ok) await db.notes.delete(id)
   }
 
@@ -125,13 +125,13 @@ export function SettingsView() {
             {trash.map((n) => (
               <div className="row" key={n.id}>
                 <span className="row__label row__label--grow">
-                  {n.title || n.body.slice(0, 40) || 'Sans titre'}
+                  {n.title || n.body.slice(0, 40)}
                   <small className="muted"> · {fmt(new Date(n.deletedAt!), 'd MMM')}</small>
                 </span>
                 <button className="icon-btn" onClick={() => restoreNote(n.id)} aria-label="Restaurer">
                   <ArchiveRestore size={18} />
                 </button>
-                <button className="icon-btn" onClick={() => deleteForever(n.id, n.title || 'Sans titre')} aria-label="Supprimer définitivement">
+                <button className="icon-btn" onClick={() => deleteForever(n.id, n.title || n.body.slice(0, 40))} aria-label="Supprimer définitivement">
                   <Trash2 size={18} />
                 </button>
               </div>

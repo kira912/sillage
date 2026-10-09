@@ -433,7 +433,7 @@ async function runSync(mode: SyncMode) {
   if (res.full) throw new Error('Espace plein : supprimez des notes partagées pour en ajouter d’autres')
   const blocked = [...tooLarge].flatMap(([id, fp]) => {
     const n = noteById.get(id)
-    return n?.shared && fingerprint(n) === fp ? [plainText(n.title) || 'Sans titre'] : []
+    return n?.shared && fingerprint(n) === fp ? [plainText(n.title) || plainText(n.body).slice(0, 40)] : []
   })
   if (blocked.length) throw new Error(`Trop longue pour être partagée : « ${blocked.join(' », « ')} »`)
 }
@@ -445,7 +445,7 @@ async function saveConflictCopy(local: Note) {
     newNote({
       ...strip(local),
       id: newId(),
-      title: `${local.title || 'Sans titre'} (version en conflit)`,
+      title: local.title ? `${local.title} (version en conflit)` : '(version en conflit)',
       pinned: false,
       createdAt: now,
       updatedAt: now,

@@ -62,7 +62,7 @@ function NowMarker({ time }: { time: string }) {
   )
 }
 
-const stopTitle = (note: Note) => (isShoppingList(note) ? 'Faire les courses' : plainText(note.title) || 'Sans titre')
+const stopTitle = (note: Note) => (isShoppingList(note) ? 'Faire les courses' : plainText(note.title))
 
 function StopRow({ stop: { note, dayKey }, onOpen, late }: { stop: Stop; onOpen: (id: string) => void; late?: boolean }) {
   const trash = useTrashNote()
@@ -76,12 +76,12 @@ function StopRow({ stop: { note, dayKey }, onOpen, late }: { stop: Stop; onOpen:
     >
       <span className="stop__time">{note.time}</span>
       <label className="stop__check">
-        <input type="checkbox" checked={done} onChange={() => toggleDone(note, dayKey)} aria-label={`Marquer « ${title} » comme fait`} />
+        <input type="checkbox" checked={done} onChange={() => toggleDone(note, dayKey)} aria-label={title ? `Marquer « ${title} » comme fait` : 'Marquer comme fait'} />
         <span className="stop__dot" />
       </label>
       <button className="stop__open" onClick={() => onOpen(note.id)}>
         {note.unread && <NewBy name={note.editedBy} />}
-        <span className="stop__title">{note.title && !isShoppingList(note) ? <RichLine text={note.title} /> : title}</span>
+        {title && <span className="stop__title">{note.title && !isShoppingList(note) ? <RichLine text={note.title} /> : title}</span>}
         {!isShoppingList(note) && <StopDescription body={note.body} />}
         <StopMeta note={note} lateSince={late ? dayKey : undefined} />
       </button>
