@@ -3,12 +3,14 @@ import { createHash } from 'node:crypto'
 import type { PushSubscription } from 'web-push'
 import { getRedis } from './redis.js'
 
-/** Un rappel planifié : `at` en millisecondes epoch (calculé sur le téléphone, dans son fuseau). */
+/**
+ * Un rappel planifié : `at` en millisecondes epoch (calculé sur le téléphone, dans son fuseau).
+ * `sealed` : titre et description chiffrés par le téléphone, que seul son service worker sait déchiffrer.
+ */
 export interface Reminder {
   id: string
   at: number
-  title: string
-  body: string
+  sealed: string
 }
 
 export interface DueReminder extends Reminder {

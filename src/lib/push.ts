@@ -2,8 +2,8 @@ import { api, fetchConfig } from './api'
 import { activeNotes } from './db'
 import { isIos, isStandalone } from './platform'
 import { computeReminders } from './reminders'
-import { fromBase64Url } from './space-crypto'
-import { spacePushWanted } from './space-push'
+import { encryptJson, fromBase64Url } from './space-crypto'
+import { reminderKey, spacePushWanted } from './space-push'
 
 const ENABLED_KEY = 'sillage:push-enabled'
 
@@ -55,7 +55,10 @@ export async function syncReminders(options: { test?: boolean } = {}) {
   const reminders = computeReminders(await activeNotes())
   const payload = JSON.stringify([subscription.endpoint, reminders])
   if (payload === lastSent && !options.test) return
-  await api('reminders', { method: 'PUT', body: { subscription: subscription.toJSON(), reminders, test: options.test } })
+  // Titre et description partent chiffrés : seuls l'identifiant et l'heure d'envoi sont lisibles par le serveur.
+  const key = await reminderKey()
+  const sealed = await Promise.all(reminders.map(async ({ id, at, title, body }) => ({ id, at, sealed: await encryptJson(key, { title, body }) })))
+  await api('reminders', { method: 'PUT', body: { subscription: subscription.toJSON(), reminders: sealed, test: options.test } })
   lastSent = payload
 }
 

@@ -1,7 +1,7 @@
 // Importé par le service worker généré (Workbox) : affichage des notifications push.
 //
 // Deux sortes de notifications :
-// - un rappel, dont le texte est prêt à afficher ;
+// - un rappel, chiffré par l'app avec la clé de ce téléphone (`reminder-key` dans la base `sillage-push`) ;
 // - une note ajoutée par un autre membre de l'espace partagé : le serveur transmet un résumé chiffré qu'on
 //   déchiffre ici avec la clé de l'espace, rangée par l'app dans la base `sillage-push` (voir src/lib/space-push.ts).
 
@@ -33,12 +33,28 @@ function fromBase64Url(s) {
   return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0))
 }
 
-async function decryptNotice(space, blob) {
-  const key = await kvGet(`space-key:${space}`)
-  if (!key) return null
+async function decrypt(key, blob) {
   const bytes = fromBase64Url(blob)
   const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.slice(0, 12) }, key, bytes.slice(12))
   return JSON.parse(new TextDecoder().decode(plain))
+}
+
+async function decryptNotice(space, blob) {
+  const key = await kvGet(`space-key:${space}`)
+  return key ? decrypt(key, blob) : null
+}
+
+/** Rappel chiffré par l'app avec la clé de ce téléphone ; texte générique si elle a disparu (données effacées). */
+async function showReminder(data) {
+  const key = await kvGet('reminder-key').catch(() => null)
+  const reminder = key ? await decrypt(key, data.sealed).catch(() => null) : null
+  await self.registration.showNotification(reminder?.title || 'Rappel', {
+    body: reminder?.body || (reminder ? '' : 'Ouvrez Sillage pour le voir'),
+    tag: data.tag,
+    icon: '/pwa-192.png',
+    badge: '/pwa-192.png',
+    data: { tab: 'agenda' },
+  })
 }
 
 /** « aujourd'hui à 14:30 », « demain », « jeudi 9 octobre ». */
@@ -94,6 +110,10 @@ self.addEventListener('push', (event) => {
   }
   if (data.kind === 'space') {
     event.waitUntil(showSpaceNotice(data))
+    return
+  }
+  if (data.kind === 'reminder') {
+    event.waitUntil(showReminder(data))
     return
   }
   const title = data.title || 'Sillage'

@@ -13,6 +13,7 @@ const STORE = 'kv'
 
 export const spaceKeyId = (spaceId: string) => `space-key:${spaceId}`
 export const BADGE_KEY = 'badge'
+const REMINDER_KEY = 'reminder-key'
 
 function openKv(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -33,6 +34,35 @@ async function kv(mode: IDBTransactionMode, run: (store: IDBObjectStore) => void
   })
   db.close()
 }
+
+async function kvGet<T>(key: string): Promise<T | undefined> {
+  let value: T | undefined
+  await kv('readonly', (s) => {
+    const req = s.get(key)
+    req.onsuccess = () => (value = req.result as T | undefined)
+  })
+  return value
+}
+
+/**
+ * Clé propre à ce téléphone pour chiffrer le texte des rappels : le serveur ne connaît que leur heure d'envoi.
+ * Créée au premier besoin, non exportable, lue par le service worker pour afficher la notification.
+ */
+export function reminderKey(): Promise<CryptoKey> {
+  // Une seule création même si deux synchronisations démarrent ensemble (sinon la seconde clé écraserait la première).
+  reminderKeyPromise ??= (async () => {
+    const existing = await kvGet<CryptoKey>(REMINDER_KEY)
+    if (existing) return existing
+    const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+    await kv('readwrite', (s) => s.put(key, REMINDER_KEY))
+    return key
+  })().catch((e) => {
+    reminderKeyPromise = undefined
+    throw e
+  })
+  return reminderKeyPromise
+}
+let reminderKeyPromise: Promise<CryptoKey> | undefined
 
 /** Clé de l'espace pour le service worker (objet CryptoKey non exportable : la clé brute n'est jamais écrite). */
 export const saveSpaceKey = (spaceId: string, key: CryptoKey) => kv('readwrite', (s) => s.put(key, spaceKeyId(spaceId))).catch(() => {})

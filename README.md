@@ -106,7 +106,8 @@ recalculés à chaque ouverture de l'app. Réglages → « Envoi des rappels » 
 La saisie IA est plafonnée à 30 analyses par heure et par adresse IP, et 500 par jour au total.
 
 **Données transmises** : le texte saisi dans la saisie rapide (pour analyse), et pour les notes avec rappel :
-titre, date/heure et lieu. Les notes partagées transitent chiffrées (AES-GCM, clé dérivée du code d'invitation,
+l'heure d'envoi du rappel ; son texte (titre, date/heure et lieu) est chiffré avec une clé qui ne quitte pas le
+téléphone. Les notes partagées transitent chiffrées (AES-GCM, clé dérivée du code d'invitation,
 jamais envoyée au serveur). Les notes personnelles ne quittent pas le téléphone.
 
 ### Espace partagé

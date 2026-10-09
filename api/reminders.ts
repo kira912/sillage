@@ -4,6 +4,8 @@ import { clientIp, rateLimit } from './_lib/rate-limit.js'
 import { deviceId, getStore, type Reminder } from './_lib/store.js'
 
 const MAX_REMINDERS = 500
+/** Titre et description chiffrés (base64) : large pour un titre et une ligne de date et de lieu. */
+const MAX_SEALED = 4000
 /** Un peu plus que l'horizon du téléphone (60 jours), pour absorber les écarts d'horloge. */
 const HORIZON_MS = 62 * 24 * 3600 * 1000
 /** Rappels ouverts à tous : envois de listes limités par adresse IP (un téléphone en envoie à chaque modification). */
@@ -22,19 +24,19 @@ function cleanReminders(raw: unknown, now: number): Reminder[] {
       (r): r is Reminder =>
         !!r &&
         typeof r.id === 'string' &&
-        typeof r.title === 'string' &&
-        typeof r.body === 'string' &&
+        typeof r.sealed === 'string' &&
+        r.sealed.length <= MAX_SEALED &&
         Number.isFinite(r.at) &&
         r.at > now - 60_000 &&
         r.at < now + HORIZON_MS,
     )
     .slice(0, MAX_REMINDERS)
-    .map((r) => ({ id: r.id.slice(0, 100), at: Math.round(r.at), title: r.title.slice(0, 120), body: r.body.slice(0, 300) }))
+    .map((r) => ({ id: r.id.slice(0, 100), at: Math.round(r.at), sealed: r.sealed }))
 }
 
 /**
  * Le téléphone envoie la liste complète de ses rappels à venir ; elle remplace la précédente.
- * Les notes elles-mêmes restent sur le téléphone : seuls titre, heure et courte description transitent.
+ * Les notes elles-mêmes restent sur le téléphone : seuls l'heure d'envoi et un texte chiffré transitent.
  */
 export const PUT = guard(async (request: Request) => {
   if (!(await rateLimit(`reminders:${clientIp(request)}`, MAX_SYNCS_PER_IP_PER_HOUR, 3600))) return error(429, 'Trop de demandes, réessayez plus tard')

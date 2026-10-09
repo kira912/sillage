@@ -1,7 +1,7 @@
 import type { PushSubscription } from 'web-push'
 import { checkCron } from './_lib/auth.js'
 import { guard, json } from './_lib/http.js'
-import { sendPush } from './_lib/push.js'
+import { sendPush, type PushPayload } from './_lib/push.js'
 import { getStore, type DueReminder } from './_lib/store.js'
 
 /** Un rappel en retard de plus de 2 h n'est plus envoyé (ex. cron en panne pendant la nuit). */
@@ -12,6 +12,14 @@ const CLAIM_BATCH = 200
 const CONCURRENCY = 25
 /** Au-delà, on s'arrête et le passage suivant (une minute plus tard) reprend la file. */
 const TIME_BUDGET_MS = 45_000
+
+/** Rappels enregistrés avant leur chiffrement (texte en clair) : encore envoyés tels quels jusqu'à leur échéance. */
+type LegacyReminder = DueReminder & { title?: string; body?: string }
+
+function payloadOf(r: LegacyReminder): PushPayload {
+  if (typeof r.sealed === 'string') return { kind: 'reminder', sealed: r.sealed, tag: r.id }
+  return { title: r.title ?? 'Sillage', body: r.body ?? '', tag: r.id }
+}
 
 /**
  * Envoie les rappels arrivés à échéance. À appeler chaque minute :
@@ -33,7 +41,7 @@ export const GET = guard(async (request: Request) => {
     const subscription = await subscriptions.get(r.device)
     if (!subscription) return 'skipped'
     try {
-      if ((await sendPush(subscription, { title: r.title, body: r.body, tag: r.id })) === 'sent') return 'sent'
+      if ((await sendPush(subscription, payloadOf(r))) === 'sent') return 'sent'
       gone.add(r.device)
       await store.removeDevice(r.device)
       return 'skipped'

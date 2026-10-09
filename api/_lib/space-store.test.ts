@@ -113,9 +113,9 @@ describe.skipIf(!url)('stockage Redis', () => {
     const subscription = { endpoint: 'https://push.example/1', keys: { p256dh: 'p', auth: 'a' } }
     const now = Date.now()
     await reminders.replaceDevice('device1', subscription, [
-      { id: 'r1', at: now - 2000, title: 't', body: 'b' },
-      { id: 'r2', at: now - 1000, title: 't', body: 'b' },
-      { id: 'r3', at: now + 60_000, title: 't', body: 'b' },
+      { id: 'r1', at: now - 2000, sealed: 's' },
+      { id: 'r2', at: now - 1000, sealed: 's' },
+      { id: 'r3', at: now + 60_000, sealed: 's' },
     ])
 
     const [first, second] = await Promise.all([reminders.claimDue(now, 1), reminders.claimDue(now, 1)])
