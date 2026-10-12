@@ -147,6 +147,7 @@ export async function createSpace(name: string, memberName: string) {
     },
   })
   writeState({ secret, spaceId, name, tags, memberId, memberName, members: [{ id: memberId, name: memberName, lastSeen: Date.now() }], cursor: 0 })
+  await syncSpace()
 }
 
 export async function joinSpace(invite: string, memberName: string) {

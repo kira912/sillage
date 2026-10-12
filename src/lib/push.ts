@@ -2,8 +2,9 @@ import { api, fetchConfig } from './api'
 import { activeNotes } from './db'
 import { isIos, isStandalone } from './platform'
 import { computeReminders } from './reminders'
+import { getSpace, syncSpace } from './space'
 import { encryptJson, fromBase64Url } from './space-crypto'
-import { reminderKey, spacePushWanted } from './space-push'
+import { reminderKey, setSpacePushWanted, spacePushWanted } from './space-push'
 
 const ENABLED_KEY = 'sillage:push-enabled'
 
@@ -68,15 +69,18 @@ export async function enablePush() {
   if (permission !== 'granted') throw new Error('Notifications refusées. Autorisez-les dans Réglages iPhone → Sillage.')
   await getSubscription(true)
   setEnabledFlag(true)
+  setSpacePushWanted(true)
   await syncReminders({ test: true })
+  if (getSpace()) void syncSpace()
 }
 
 export async function disablePush() {
   setEnabledFlag(false)
+  setSpacePushWanted(false)
   lastSent = ''
   const subscription = await getSubscription(false)
   if (!subscription) return
   await api('reminders', { method: 'DELETE', body: { subscription: subscription.toJSON() } }).catch(() => {})
-  // Le même abonnement sert aux notifications de l'espace partagé : on le garde si elles sont activées.
+  if (getSpace()) await syncSpace()
   if (!spacePushWanted()) await subscription.unsubscribe()
 }

@@ -8,6 +8,7 @@ import { fromBase64Url } from './space-crypto'
  */
 
 const FLAG_KEY = 'sillage:space-push'
+const PUSH_ENABLED_KEY = 'sillage:push-enabled'
 const DB_NAME = 'sillage-push'
 const STORE = 'kv'
 
@@ -70,7 +71,11 @@ export const forgetSpaceKey = (spaceId: string) => kv('readwrite', (s) => s.dele
 
 export function spacePushWanted(): boolean {
   try {
-    return localStorage.getItem(FLAG_KEY) === '1' && typeof Notification !== 'undefined' && Notification.permission === 'granted'
+    const flag = localStorage.getItem(FLAG_KEY)
+    if (flag === '0') return false
+    const granted = typeof Notification !== 'undefined' && Notification.permission === 'granted'
+    if (!granted) return false
+    return flag === '1' || localStorage.getItem(PUSH_ENABLED_KEY) === '1'
   } catch {
     return false
   }
@@ -78,8 +83,7 @@ export function spacePushWanted(): boolean {
 
 export function setSpacePushWanted(on: boolean) {
   try {
-    if (on) localStorage.setItem(FLAG_KEY, '1')
-    else localStorage.removeItem(FLAG_KEY)
+    localStorage.setItem(FLAG_KEY, on ? '1' : '0')
   } catch {
     /* ignoré : le réglage sera redemandé */
   }

@@ -89,7 +89,7 @@ async function showSpaceNotice(data) {
   // Pastille de l'icône : le nombre connu de l'app, plus ce qui arrive (l'app le corrige à sa prochaine ouverture).
   const badge = ((await kvGet('badge').catch(() => 0)) || 0) + count
   await kvPut('badge', badge).catch(() => {})
-  await self.navigator.setAppBadge?.(badge).catch?.(() => {})
+  await (self.navigator?.setAppBadge ?? navigator?.setAppBadge)?.(badge).catch?.(() => {})
 
   const tab = items.some((i) => i.date) ? 'agenda' : 'notes'
   await self.registration.showNotification(title, {
