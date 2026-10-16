@@ -44,6 +44,8 @@ async function decryptNotice(space, blob) {
   return key ? decrypt(key, blob) : null
 }
 
+const ICON_URL = new URL('/pwa-192.png', self.location.origin).href
+
 /** Rappel chiffré par l'app avec la clé de ce téléphone ; texte générique si elle a disparu (données effacées). */
 async function showReminder(data) {
   const key = await kvGet('reminder-key').catch(() => null)
@@ -51,8 +53,8 @@ async function showReminder(data) {
   await self.registration.showNotification(reminder?.title || 'Rappel', {
     body: reminder?.body || (reminder ? '' : 'Ouvrez Sillage pour le voir'),
     tag: data.tag,
-    icon: '/pwa-192.png',
-    badge: '/pwa-192.png',
+    icon: ICON_URL,
+    badge: ICON_URL,
     data: { tab: 'agenda' },
   })
 }
@@ -80,10 +82,12 @@ async function showSpaceNotice(data) {
   if (notice && count === 1 && items[0]) {
     const item = items[0]
     title = item.date ? `${by} a ajouté à l’agenda` : `${by} a ajouté une note`
-    body = [item.title, item.date ? describeDay(item.date, item.time) : ''].filter(Boolean).join(', ')
+    const text = [item.title, item.date ? describeDay(item.date, item.time) : ''].filter(Boolean).join(', ')
+    body = text.trim() || 'Ouvrez Sillage pour la voir'
   } else if (notice) {
     title = `${by} a ajouté ${count} notes`
-    body = items.map((i) => i.title).filter(Boolean).join(', ') + (count > items.length ? '…' : '')
+    const text = items.map((i) => i.title).filter(Boolean).join(', ') + (count > items.length ? '…' : '')
+    body = text.trim() || `${count} nouvelle(s) note(s)`
   }
 
   // Pastille de l'icône : le nombre connu de l'app, plus ce qui arrive (l'app le corrige à sa prochaine ouverture).
@@ -95,8 +99,8 @@ async function showSpaceNotice(data) {
   await self.registration.showNotification(title, {
     body,
     tag: data.tag,
-    icon: '/pwa-192.png',
-    badge: '/pwa-192.png',
+    icon: ICON_URL,
+    badge: ICON_URL,
     data: { tab },
   })
 }
@@ -121,8 +125,8 @@ self.addEventListener('push', (event) => {
     self.registration.showNotification(title, {
       body: data.body || '',
       tag: data.tag,
-      icon: '/pwa-192.png',
-      badge: '/pwa-192.png',
+      icon: ICON_URL,
+      badge: ICON_URL,
       data: {},
     }),
   )

@@ -374,7 +374,12 @@ async function runSync(mode: SyncMode) {
     ? {
         by: s.memberName,
         count: added.length,
-        items: added.slice(0, NOTICE_ITEMS).map((n) => ({ id: n.id, title: plainText(n.title).slice(0, 80), date: n.date, time: n.time })),
+        items: added.slice(0, NOTICE_ITEMS).map((n) => ({
+          id: n.id,
+          title: (plainText(n.title).trim() || plainText(n.body).trim()).slice(0, 80),
+          date: n.date,
+          time: n.time,
+        })),
       }
     : null
 
